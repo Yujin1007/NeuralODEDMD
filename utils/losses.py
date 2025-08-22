@@ -1,13 +1,13 @@
 import math
 import torch
 import torch.nn as nn
-
+from torch.nn import functional as F
 def gaussian_nll_loss(y, mu, logvar):
     return 0.5 * (logvar + (y - mu).pow(2) / logvar.exp() + math.log(2 * math.pi)).mean()
 
 _nll = nn.GaussianNLLLoss(eps=1e-6, reduction='mean')
 
-def cdmd_loss(mu_u, logvar_u, y_next, mu_phi, logvar_phi, lambda_param, W, *,
+def stochastic_loss_fn(mu_u, logvar_u, y_next, mu_phi, logvar_phi, lambda_param, W, *,
               l1_weight: float, mode_sparsity_weight: float):
     var_u = torch.exp(logvar_u)
     recon = _nll(mu_u, y_next, var_u)
@@ -19,3 +19,10 @@ def cdmd_loss(mu_u, logvar_u, y_next, mu_phi, logvar_phi, lambda_param, W, *,
     if not torch.isfinite(loss):
         raise ValueError(f"Non-finite loss detected: recon={recon}, kl={kl_phi}, l1={l1_lambda}, sp={sparsity}")
     return loss, {"recon": recon.item(), "kl": (0.001*kl_phi).item(), "l1": l1_lambda.item(), "sp": sparsity.item()}
+
+def loss_fn(u_pred, y_next, mu, logvar, lambda_param, l1_weight: float):
+    # u_pred, mu, logvar, lambda_param = model(coords, y_prev, t_prev, t_next)
+    recon_loss = F.mse_loss(u_pred, y_next)  # Predict next step
+    kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    l1_loss = l1_weight * torch.mean(torch.abs(lambda_param))
+    return recon_loss + 0.001 * kl_loss + l1_loss

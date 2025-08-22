@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from utils.utils import complex_block_matrix
-from utils.ode import ode_euler_uncertainty
+from utils.utils import complex_block_matrix, reparameterize
+from utils.ode import ode_euler, ode_euler_uncertainty
 
-class ModeNet(nn.Module):
+# This module extracts mode information from the input coordinates.
+class ModeExtractor(nn.Module):
     def __init__(self, r: int, hidden_dim: int):
         super().__init__()
         self.r = r
@@ -20,8 +21,8 @@ class ModeNet(nn.Module):
         out = self.net(coords)
         return out.view(-1, self.r, 2)
 
-
-class Encoder(nn.Module):
+# This module outputs latent distribution phi and lambda parameter. 
+class PhiEncoder(nn.Module):
     def __init__(self, r: int, hidden_dim: int):
         super().__init__()
         self.r = r
@@ -45,8 +46,8 @@ class Encoder(nn.Module):
         lambda_param = self.lambda_out(pooled).view(self.r, 2)
         return mu, logvar, lambda_param
 
-
-class ODEFunc(nn.Module):
+# This module implements the ODE function.
+class ODENet(nn.Module):
     def __init__(self, r: int, hidden_dim: int):
         super().__init__()
         self.r = r
@@ -65,24 +66,41 @@ class ODEFunc(nn.Module):
         x = torch.cat([phi_f, lam_f, t_tensor], dim=0)
         return self.net(x).view(self.r, 2)
 
+# This module gets latent phi to reconstruct u
+class ReconstructionDecoder(nn.Module):
+    def __init__(self, r: int, hidden_dim: int):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(2 + r*2, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 2)
+        )
 
-class NODE_DMD(nn.Module):
+    def forward(self, coords, phi):
+        phi_flat = phi.view(1, -1)  # (1, r*2)
+        phi_exp = phi_flat.repeat(coords.shape[0], 1)  # (m, r*2)
+        input_feat = torch.cat([coords, phi_exp], dim=-1)  # (m, 2 + r*2)
+        return self.net(input_feat)
+
+class Stochastic_NODE_DMD(nn.Module):
     def __init__(self, r: int, hidden_dim: int, ode_steps: int, process_noise: float, cov_eps: float):
         super().__init__()
         self.r = r
-        self.encoder = Encoder(r, hidden_dim)
-        self.ode_func = ODEFunc(r, hidden_dim)
-        self.mode_net = ModeNet(r, hidden_dim)
+        self.phi_net = PhiEncoder(r, hidden_dim)
+        self.ode_func = ODENet(r, hidden_dim)
+        self.mode_net = ModeExtractor(r, hidden_dim)
         self.ode_steps = ode_steps
         self.process_noise = process_noise
         self.cov_eps = cov_eps
 
     def forward(self, coords, y_prev, t_prev: float, t_next: float):
-        mu, logvar, lambda_param = self.encoder(coords, y_prev)
+        mu_phi, logvar_phi, lambda_param = self.phi_net(coords, y_prev)
         mu_phi_next, cov_phi_next = ode_euler_uncertainty(
             self.ode_func,
-            mu,
-            logvar,
+            mu_phi,
+            logvar_phi,
             lambda_param,
             t_prev,
             t_next,
@@ -97,5 +115,22 @@ class NODE_DMD(nn.Module):
         cov_u = M @ cov_phi_next @ M.T
         var_u = torch.clamp(cov_u.diagonal(), min=self.cov_eps).view(coords.shape[0], 2)
         logvar_u = torch.log(var_u)
-        return mu_u, logvar_u, mu, logvar, lambda_param, W
+        return mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lambda_param, W
+    
+
+class NODE_DMD(nn.Module):
+    def __init__(self, r: int, hidden_dim: int, ode_steps: int):
+        super().__init__()
+        self.encoder = PhiEncoder(r, hidden_dim)
+        self.ode_func = ODENet(r, hidden_dim)
+        self.decoder = ReconstructionDecoder(r, hidden_dim)
+        self.ode_steps = ode_steps
+
+    def forward(self, coords, y_prev, t_prev, t_next):
+        mu, logvar, lambda_param = self.encoder(coords, y_prev)  # Use previous time step
+        phi_prev = reparameterize(mu, logvar)
+        # phi_next = ode_euler(self.ode_func, phi_prev, lambda_param, t_prev, t_next)
+        phi_next = ode_euler(self.ode_func, phi_prev, lambda_param, 0, t_next, self.ode_steps)
+        u_pred = self.decoder(coords, phi_next)
+        return u_pred, mu, logvar, lambda_param
 
