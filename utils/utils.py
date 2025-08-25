@@ -18,28 +18,48 @@ def complex_block_matrix(W: torch.Tensor) -> torch.Tensor:
     return M
 
 
-def reparameterize_full(mu_u, cov_u, jitter=1e-6):
-    # mu_u: (m, 2), cov_u: (2m, 2m)
-    m = mu_u.shape[0]
-    D = m * 2  # 2m
-    
-    # flatten
-    mu_flat = mu_u.reshape(D)          # (2m,)
-    
-    # 대칭화 & jitter로 안정성 확보
-    cov_u = 0.5 * (cov_u + cov_u.T) + jitter * torch.eye(D, device=cov_u.device, dtype=cov_u.dtype)
-    
-    # Cholesky factorization
-    L = torch.linalg.cholesky(cov_u)   # (2m, 2m)
-    
-    # 표준정규 샘플
-    eps = torch.randn(D, device=mu_u.device, dtype=mu_u.dtype)  # (2m,)
-    
-    # 샘플링
-    z_flat = mu_flat + L @ eps         # (2m,)
-    
-    # reshape back to (m,2)
-    return z_flat.reshape(m, 2)
+def reparameterize_full(mu_u: torch.Tensor,
+                               cov_u: torch.Tensor,
+                               jitter_init: float = 1e-6,
+                               jitter_max: float = 1e-2,
+                               eps_min_eig: float = 1e-12):
+    """
+    mu_u:  (..., m, 2)
+    cov_u: (..., 2m, 2m)
+    return: sample with shape (..., m, 2)
+    """
+    # ---- shapes ----
+    *batch, m, two = mu_u.shape
+    assert two == 2, "mu_u 마지막 차원은 2(real, imag)여야 합니다."
+    D = m * 2
+
+    mu_flat = mu_u.reshape(*batch, D)  # (..., 2m)
+
+    # ---- symmetrize + small jitter for numerical stability ----
+    cov = 0.5 * (cov_u + cov_u.transpose(-1, -2))
+
+    I = torch.eye(D, device=cov.device, dtype=cov.dtype)
+    jitter = jitter_init
+
+    # ---- try Cholesky with escalating jitter ----
+    while jitter <= jitter_max:
+        try:
+            L = torch.linalg.cholesky(cov + jitter * I)  # (..., D, D)
+            eps = torch.randn_like(mu_flat)              # (..., D)
+            z_flat = mu_flat + eps @ L.transpose(-1, -2)
+            return z_flat.reshape(*batch, m, 2)
+        except RuntimeError:
+            jitter *= 10.0  # increase jitter and retry
+
+    # ---- fallback: PSD via eigen decomposition (clips tiny negatives) ----
+    evals, evecs = torch.linalg.eigh(cov)               # (..., D), (..., D, D)
+    evals = torch.clamp(evals, min=eps_min_eig)
+    sqrt_evals = torch.sqrt(evals)                      # (..., D)
+    # sqrt(cov) = Q diag(sqrt(evals)) Q^T
+    L_psd = evecs @ (sqrt_evals.unsqueeze(-2) * evecs.transpose(-1, -2))
+    eps = torch.randn_like(mu_flat)                     # (..., D)
+    z_flat = mu_flat + eps @ L_psd.transpose(-1, -2)
+    return z_flat.reshape(*batch, m, 2)
 
 def reparameterize(mu, logvar):
     std = torch.exp(0.5 * logvar)
