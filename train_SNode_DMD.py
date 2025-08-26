@@ -7,7 +7,7 @@ from dataset.generate_synth_dataset import load_synth
 from models.node_dmd import Stochastic_NODE_DMD
 from utils.losses import stochastic_loss_fn
 from utils.utils import ensure_dir, reparameterize_full
-from utils.plots import plot_loss_curves
+from utils.plots import plot_loss
 import random
 import numpy as np
 
@@ -83,7 +83,7 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
         'best_loss': best,
         'loss_list': avg_loss_list
     }, os.path.join(cfg.save_dir, 'final_model.pt'))
-    plot_loss_curves(avg_loss_list, cfg.save_dir)
+    plot_loss(avg_loss_list, cfg.save_dir)
     print(f"Training complete. Final model saved at {os.path.join(cfg.save_dir, 'final_model.pt')}")
     print(f"Best model saved at {os.path.join(cfg.save_dir, 'best_model.pt')} with loss {best:.6f}")
 

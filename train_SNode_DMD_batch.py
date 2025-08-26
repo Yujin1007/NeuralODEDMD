@@ -10,6 +10,7 @@ from utils.utils import ensure_dir, reparameterize_full
 import random
 import numpy as np
 from torch.utils.data import DataLoader
+from utils.plots import plot_loss
 
 def set_seed(seed: int):
     
@@ -45,9 +46,10 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
     
     avg_loss_list = []
     for epoch in trange(cfg.num_epochs, desc="Training"):
-        total = 0.0
-        u_pred = y_list[0]
-        t_prev = t_list[0]
+        total_loss = 0.0
+        num_batches = 0
+        u_pred = y_list[0].unsqueeze(0).repeat(cfg.batch_size, *([1] * y_list[0].dim())).to(device)
+        t_prev = torch.tensor(t_list[0], dtype=torch.float32, device=device).unsqueeze(0).repeat(cfg.batch_size, )
         for batch in dataloader:
             t_next, coords, y_next = [x.to(device) for x in batch]
 
@@ -80,7 +82,7 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
                 'best_loss': best,
                 'loss_list': avg_loss_list
             }, os.path.join(cfg.save_dir, 'best_model.pt'))
-
+            plot_loss(avg_loss_list, cfg.save_dir)
     torch.save({
         'epoch': cfg.num_epochs,
         'model_state_dict': model.state_dict(),
@@ -88,6 +90,7 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
         'best_loss': best,
         'loss_list': avg_loss_list
     }, os.path.join(cfg.save_dir, 'final_model.pt'))
+    plot_loss(avg_loss_list, cfg.save_dir)
 
     print(f"Training complete. Final model saved at {os.path.join(cfg.save_dir, 'final_model.pt')}")
     print(f"Best model saved at {os.path.join(cfg.save_dir, 'best_model.pt')} with loss {best:.6f}")

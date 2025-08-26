@@ -21,6 +21,7 @@ def true_modes(coords):
     return W
 
 def synth_sequence(T=20, nx=32, ny=32, sample_ratio=0.1, sigma=0.02, seed=0):  # T reduced for speed
+# def synth_sequence(T=20, nx=64, ny=64, sample_ratio=0.1, sigma=0.02, seed=0):  # T reduced for speed
     np.random.seed(seed)
     coords_full, shape = make_grid(nx, ny)
     n = coords_full.shape[0]
