@@ -23,14 +23,14 @@ def set_seed(seed: int):
 def run_train(cfg: Stochastic_Node_DMD_Config):
     set_seed(cfg.seed)
     device = torch.device(cfg.device)
-    t_list, coords_list, y_list, *_ = load_synth(device, T=50)
+    t_list, coords_list, y_list, *_ = load_synth(device, T=cfg.data_len)
     dataset = SynthDataset(t_list, coords_list, y_list)
     dataloader = DataLoader(
         dataset,
-        batch_size=cfg.batch_size,  # Add batch_size to your config
+        batch_size=cfg.batch_size,  # Add  batch_size to your config
         shuffle=False,  # Set to True if you want to shuffle time steps
         num_workers=0,  # Set to >0 for parallel loading, but 0 is fine for small datasets
-        drop_last=False  # Keep the last incomplete batch
+        drop_last=True  # Keep the last incomplete batch
     )   
     model = Stochastic_NODE_DMD(
         r=cfg.r,
@@ -48,11 +48,16 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
     for epoch in trange(cfg.num_epochs, desc="Training"):
         total_loss = 0.0
         num_batches = 0
-        u_pred = y_list[0].unsqueeze(0).repeat(cfg.batch_size, *([1] * y_list[0].dim())).to(device)
+        # u_pred = y_list[0].unsqueeze(0).repeat(cfg.batch_size, *([1] * y_list[0].dim())).to(device)
         t_prev = torch.tensor(t_list[0], dtype=torch.float32, device=device).unsqueeze(0).repeat(cfg.batch_size, )
+        u_pred = y_list[0]
+        t_prev = t_prev.item()
         for batch in dataloader:
             t_next, coords, y_next = [x.to(device) for x in batch]
-
+            # print(f"shape t_next {t_next[0].shape}, coords {coords[0].shape}, y_next {y_next[0].shape}")
+            t_next = t_next.item()          # converts 0-dim tensor or [1] tensor to a Python float
+            coords   = coords.squeeze(0)       # [1,102,2] -> [102,2]
+            y_next   = y_next.squeeze(0)       # [1,102,2] -> [102,2]
             opt.zero_grad()
             mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lam, W = model(coords, u_pred, t_prev, t_next)
             u_pred = reparameterize_full(mu_u.detach(), cov_u.detach())
@@ -73,6 +78,13 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
         avg_loss_list.append(avg)
         if epoch % cfg.print_every == 0:
             print(f"Epoch {epoch:04d} | avg_loss={avg:.6f}")
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': opt.state_dict(),
+                'best_loss': best,
+                'loss_list': avg_loss_list
+            }, os.path.join(cfg.save_dir, f'ckpt_model_{epoch}.pt'))
         if avg < best:
             best = avg
             torch.save({
@@ -90,7 +102,7 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
         'best_loss': best,
         'loss_list': avg_loss_list
     }, os.path.join(cfg.save_dir, 'final_model.pt'))
-    plot_loss(avg_loss_list, cfg.save_dir)
+    plot_loss(avg_loss_list, cfg.save_dir, "final_loss.png")
 
     print(f"Training complete. Final model saved at {os.path.join(cfg.save_dir, 'final_model.pt')}")
     print(f"Best model saved at {os.path.join(cfg.save_dir, 'best_model.pt')} with loss {best:.6f}")

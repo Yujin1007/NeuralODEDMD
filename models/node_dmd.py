@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from utils.utils import complex_block_matrix, reparameterize
-from utils.ode import ode_euler_uncertainty  # ← 배치 지원 버전(이전 답변)이라고 가정
-
+from utils.ode import ode_euler_uncertainty_batch  
+from utils.ode import ode_euler_uncertainty
 # ---------------------------
 # 유틸: 배치/비배치 통일 헬퍼
 # ---------------------------
@@ -235,6 +235,7 @@ class Stochastic_NODE_DMD(nn.Module):
 
     def forward(model, coords, y_prev, t_prev, t_next):
         mu_phi, logvar_phi, lambda_param = model.phi_net(coords, y_prev)
+        
         mu_phi_next, cov_phi_next = ode_euler_uncertainty(
                 model.ode_func, mu_phi, logvar_phi, lambda_param, t_prev, t_next,
                 process_noise=model.process_noise, cov_eps=model.cov_eps)

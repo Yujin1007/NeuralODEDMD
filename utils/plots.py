@@ -1,16 +1,16 @@
 import matplotlib.pyplot as plt
 import os
 
-def plot_loss(avg_loss_list, out_dir):
+def plot_loss(avg_loss_list, out_dir, filename="loss.png"):
     epochs = list(range(len(avg_loss_list)))  # 0부터 시작하는 epoch index
     plt.figure(figsize=(8, 5))
-    plt.plot(epochs, avg_loss_list, marker='o', linestyle='-', color='b')
+    plt.plot(epochs, avg_loss_list)
     plt.xlabel('Epoch')
     plt.ylabel('Average Loss')
     plt.title('Average Loss per Epoch')
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, f'loss.png'), dpi=150, bbox_inches='tight')
+    plt.savefig(os.path.join(out_dir, filename), dpi=150, bbox_inches='tight')
     plt.close()
 
 def plot_reconstruction(coords, t, y_true, u_pred, mse, out_dir, vmin, vmax):

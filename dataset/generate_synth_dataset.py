@@ -20,12 +20,12 @@ def true_modes(coords):
     W = np.stack([m1, m2, m3, m4], axis=1).astype(np.complex64)
     return W
 
-def synth_sequence(T=20, nx=32, ny=32, sample_ratio=0.1, sigma=0.02, seed=0):  # T reduced for speed
+def synth_sequence(T=20, resolution=(32,32), sample_ratio=0.1, sigma=0.1, seed=0):  # T reduced for speed
 # def synth_sequence(T=20, nx=64, ny=64, sample_ratio=0.1, sigma=0.02, seed=0):  # T reduced for speed
     np.random.seed(seed)
-    coords_full, shape = make_grid(nx, ny)
+    coords_full, shape = make_grid(resolution[0], resolution[1])
     n = coords_full.shape[0]
-    r = 4
+
     W_full = true_modes(coords_full)
 
     # alpha = np.array([-0.1, -0.05, -0.2, 0.0])
@@ -61,7 +61,7 @@ def synth_sequence(T=20, nx=32, ny=32, sample_ratio=0.1, sigma=0.02, seed=0):  #
     return t_list, coords_list, y_list, y_true_list, y_true_full_list, coords_full, (alpha, omega, b), W_full
 
 
-def load_synth(device: torch.device, T=20):
+def load_synth(device: torch.device, T=20, resolution=(32,32)):
     """Loads synthetic sequence and converts to torch (real/imag split).
     Returns:
         t_list: list[float]
@@ -79,7 +79,7 @@ def load_synth(device: torch.device, T=20):
         coords_full,
         gt_params,
         W_full,
-    ) = synth_sequence(T=T)
+    ) = synth_sequence(T=T, resolution=resolution)
 
     def to_torch_split(lst: List[np.ndarray]):
         yr = [torch.from_numpy(np.real(y)).float().to(device) for y in lst]
