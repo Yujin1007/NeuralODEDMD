@@ -9,16 +9,19 @@ class Stochastic_Node_DMD_Config:
     batch_size: int = 1
     lr: float = 5e-4
     l1_weight: float = 1e-3
-    mode_sparsity_weight: float = 1e-3
+    mode_sparsity_weight: float = 1e-4# 1e-3
+    kl_phi_weight: float = 0.1 #0.001
+    cons_weight: float = 0.1
     save_dir: str = "results/stochastic/run10"
-    print_every: int = 100
+    print_every: int = 1000
     ode_steps: int = 10
     process_noise: float = 1e-5
     cov_eps: float = 1e-6
     seed: int = 42
     data_len: int = 50
-    eval_data_len: int = 70
+    eval_data_len: int = 100
     resolution: tuple = (32,32)  # Added resolution parameter
+
 
 @dataclass
 class Deterministic_Node_DMD_Config:
