@@ -247,7 +247,7 @@ def ode_euler_uncertainty(
       - mode="full": A Σ A^T + Qd 이산화로 full-cov 전파 (정확, 다소 느림)
     반환값은 (mu_next, cov) 동일. diag 모드도 cov는 (2r,2r)의 대각 행렬로 반환.
     """
-    basic_dt = random.uniform(0.01, 0.5)
+    # basic_dt = random.uniform(0.01, 0.5)
 
     steps = min(max_step, int(abs((t_end - t_start) / basic_dt)))
     dt = (t_end - t_start) / max(1, steps)

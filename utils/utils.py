@@ -58,6 +58,7 @@ def reparameterize_full(mu_u: torch.Tensor,
             jitter *= 10.0  # increase jitter and retry
 
     # ---- fallback: PSD via eigen decomposition (clips tiny negatives) ----
+    
     evals, evecs = torch.linalg.eigh(cov)                     # (Btot, D), (Btot, D, D)
     evals = torch.clamp(evals, min=eps_min_eig)
     sqrt_evals = torch.sqrt(evals)                            # (Btot, D)

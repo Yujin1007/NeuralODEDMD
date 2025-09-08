@@ -111,9 +111,69 @@ class PhiEncoder(nn.Module):
         else:
             raise ValueError("coords/y must be (m,2) or (B,m,2)")
 
-# ---------------------------
-# ODENet (Neural ODE drift)
-# ---------------------------
+# # ---------------------------
+# # ODENet (Neural ODE drift)
+# # ---------------------------
+# class ODENet(nn.Module):
+#     def __init__(self, r: int, hidden_dim: int):
+#         super().__init__()
+#         self.r = r
+#         self.net = nn.Sequential(
+#             nn.Linear(r * 2 + r * 2 + 1, hidden_dim),
+#             nn.ReLU(),
+#             nn.Linear(hidden_dim, hidden_dim),
+#             nn.ReLU(),
+#             nn.Linear(hidden_dim, r * 2),
+#         )
+
+#     def forward(self, phi, lambda_param, t):
+#         """
+#         phi:           (r,2) or (B,r,2)
+#         lambda_param:  (r,2) or (B,r,2)   (broadcastable to phi)
+#         t:             scalar or (B,)
+#         returns:       (r,2) or (B,r,2)
+#         """
+#         if phi.dim() == 2:
+#             # 비배치
+#             r, two = phi.shape
+#             assert r == self.r and two == 2
+#             lam = lambda_param
+#             if lam.dim() == 2:
+#                 lam = lam
+#             elif lam.dim() == 1:
+#                 lam = lam.view(self.r, 2)
+#             else:
+#                 lam = lam.expand_as(phi)
+
+#             if not torch.is_tensor(t):
+#                 t = torch.tensor(t, dtype=phi.dtype, device=phi.device)
+#             t_feat = t.view(1).to(phi.dtype).to(phi.device)     # (1,)
+#             x = torch.cat([phi.reshape(-1), lam.reshape(-1), t_feat], dim=0)  # (4r+1,)
+#             out = self.net(x)                                   # (r*2,)
+#             return out.view(self.r, 2)
+
+#         elif phi.dim() == 3:
+#             # 배치
+#             B, r, two = phi.shape
+#             assert r == self.r and two == 2
+#             lam = lambda_param
+#             if lam.dim() == 2:
+#                 lam = lam.unsqueeze(0).expand(B, -1, -1)        # (B,r,2)
+#             elif lam.dim() == 3:
+#                 pass
+#             else:
+#                 raise ValueError("lambda_param must be (r,2) or (B,r,2)")
+#             if not torch.is_tensor(t):
+#                 t = torch.tensor(t, dtype=phi.dtype, device=phi.device)
+#             if t.dim() == 0:
+#                 t = t.repeat(B)                                 # (B,)
+#             t_feat = t.view(B, 1).to(phi.dtype).to(phi.device)  # (B,1)
+
+#             x = torch.cat([phi.reshape(B, -1), lam.reshape(B, -1), t_feat], dim=1)  # (B, 4r+1)
+#             out = self.net(x).view(B, self.r, 2)
+#             return out
+#         else:
+#             raise ValueError("phi must be (r,2) or (B,r,2)")
 class ODENet(nn.Module):
     def __init__(self, r: int, hidden_dim: int):
         super().__init__()
@@ -125,7 +185,7 @@ class ODENet(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, r * 2),
         )
-
+    
     def forward(self, phi, lambda_param, t):
         """
         phi:           (r,2) or (B,r,2)
@@ -133,6 +193,11 @@ class ODENet(nn.Module):
         t:             scalar or (B,)
         returns:       (r,2) or (B,r,2)
         """
+        lam_complex = lambda_param[..., 0] + 1j * lambda_param[..., 1]  # (B,r)
+        phi_complex = phi[..., 0] + 1j * phi[..., 1]  # (B,r)
+        drift_complex = lam_complex * phi_complex  # (B,r)
+        drift = torch.stack([drift_complex.real, drift_complex.imag], dim=-1)  # (B,r,2)
+        # print(f"drift : ", drift.flatten().detach())
         if phi.dim() == 2:
             # 비배치
             r, two = phi.shape
@@ -149,8 +214,12 @@ class ODENet(nn.Module):
                 t = torch.tensor(t, dtype=phi.dtype, device=phi.device)
             t_feat = t.view(1).to(phi.dtype).to(phi.device)     # (1,)
             x = torch.cat([phi.reshape(-1), lam.reshape(-1), t_feat], dim=0)  # (4r+1,)
-            out = self.net(x)                                   # (r*2,)
-            return out.view(self.r, 2)
+            out = self.net(x)   
+            correction = out.view(self.r, 2)
+            dphi = drift + correction  # Residual structure
+                                # (r*2,)
+            return dphi
+            # return drift
 
         elif phi.dim() == 3:
             # 배치
@@ -170,39 +239,11 @@ class ODENet(nn.Module):
             t_feat = t.view(B, 1).to(phi.dtype).to(phi.device)  # (B,1)
 
             x = torch.cat([phi.reshape(B, -1), lam.reshape(B, -1), t_feat], dim=1)  # (B, 4r+1)
-            out = self.net(x).view(B, self.r, 2)
-            return out
+            correction = self.net(x).view(B, self.r, 2)
+            dphi = drift + correction  # Residual structure
+            return dphi
         else:
             raise ValueError("phi must be (r,2) or (B,r,2)")
-
-class ReconstructionDecoder(nn.Module):
-    def __init__(self, r: int, hidden_dim: int):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(2 + r*2, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 2)
-        )
-
-    def forward(self, coords, phi):
-        # normalize to batched
-        unbatched = coords.dim() == 2  # coords: (m,2), phi: (r,2)
-        if unbatched:
-            coords = coords.unsqueeze(0)    # (1,m,2)
-            phi    = phi.unsqueeze(0)       # (1,r,2)
-
-        B, m, _ = coords.shape
-        # (B, r*2)
-        phi_flat = phi.reshape(B, -1)
-        # broadcast without allocation (view): (B, m, r*2)
-        phi_exp = phi_flat.unsqueeze(1).expand(B, m, phi_flat.size(-1))
-        # concat -> (B, m, 2 + r*2)
-        x = torch.cat([coords, phi_exp], dim=-1)
-        out = self.net(x)  # (B, m, 2)
-
-        return out.squeeze(0) if unbatched else out
 # ---------------------------
 # 메인 모듈
 # ---------------------------
@@ -240,6 +281,8 @@ class Stochastic_NODE_DMD(nn.Module):
                 model.ode_func, mu_phi, logvar_phi, lambda_param, t_prev, t_next,
                 process_noise=model.process_noise, cov_eps=model.cov_eps)
         W = model.mode_net(coords)
+
+        # print(f"mu_phi: {mu_phi.flatten()}, cov_phi: {logvar_phi.flatten()}, mu_phi_next: {mu_phi_next.flatten()}, cov_phi_next: {cov_phi_next.flatten()}, lambda_param: {lambda_param.flatten()}, W: {W.flatten()}")
         M = model._complex_block_matrix_batched(W) if coords.dim()==3 else complex_block_matrix(W)
         # mean
         if coords.dim() == 3:
@@ -265,8 +308,38 @@ class Stochastic_NODE_DMD(nn.Module):
 
         return mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lambda_param, W
     
+class ReconstructionDecoder(nn.Module):
+    def __init__(self, r: int, hidden_dim: int):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(2 + r*2, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 2)
+        )
+
+    def forward(self, coords, phi):
+        # normalize to batched
+        unbatched = coords.dim() == 2  # coords: (m,2), phi: (r,2)
+        if unbatched:
+            coords = coords.unsqueeze(0)    # (1,m,2)
+            phi    = phi.unsqueeze(0)       # (1,r,2)
+
+        B, m, _ = coords.shape
+        # (B, r*2)
+        phi_flat = phi.reshape(B, -1)
+        # broadcast without allocation (view): (B, m, r*2)
+        phi_exp = phi_flat.unsqueeze(1).expand(B, m, phi_flat.size(-1))
+        # concat -> (B, m, 2 + r*2)
+        x = torch.cat([coords, phi_exp], dim=-1)
+        out = self.net(x)  # (B, m, 2)
+
+        return out.squeeze(0) if unbatched else out
+
 import time
 def _tick():
     if torch.cuda.is_available():
         torch.cuda.synchronize()
     return time.time()
+

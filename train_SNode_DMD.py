@@ -19,6 +19,19 @@ def set_seed(seed: int):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
+def _prepare_model(cfg: Stochastic_Node_DMD_Config, pretrained_path: str, model_name="best_model.pt") -> Stochastic_NODE_DMD:
+    device = torch.device(cfg.device)
+    model = Stochastic_NODE_DMD(
+        cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps
+    ).to(device)
+    ckpt = torch.load(os.path.join(pretrained_path, model_name), map_location=device)
+    model.load_state_dict(ckpt["model_state_dict"])
+    model.eval()
+    loss = ckpt["best_loss"]
+    epoch = ckpt["epoch"]
+    print(f"best loss of {loss} saved at epoch {epoch}")
+    return model
+
 
 def run_train(cfg: Stochastic_Node_DMD_Config):
     set_seed(cfg.seed)
@@ -39,6 +52,8 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
         process_noise=cfg.process_noise,
         cov_eps=cfg.cov_eps,
     ).to(device)
+    # pretrained_path = "results/stochastic/run11"
+    # model = _prepare_model(cfg, pretrained_path)
 
     opt = optim.Adam(model.parameters(), lr=cfg.lr)
     best = float("inf")
@@ -53,20 +68,30 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
         u_pred = y_list[0]
         t_prev = t_prev.item()
         for batch in dataloader:
-            t_next, coords, y_next = [x.to(device) for x in batch]
+            t_next, coords, y_next, y_prev = [x.to(device) for x in batch]
             # print(f"shape t_next {t_next[0].shape}, coords {coords[0].shape}, y_next {y_next[0].shape}")
             t_next = t_next.item()          # converts 0-dim tensor or [1] tensor to a Python float
             coords   = coords.squeeze(0)       # [1,102,2] -> [102,2]
             y_next   = y_next.squeeze(0)       # [1,102,2] -> [102,2]
+            y_prev   = y_prev.squeeze(0)       # [1,102,2] -> [102,2]
+
             opt.zero_grad()
-            mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lam, W = model(coords, u_pred, t_prev, t_next)
+            # mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lam, W = model(coords, u_pred, t_prev, t_next)
+            mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lam, W = model(coords, y_prev, t_prev, t_next)
+            # Observed phi_t from y_next (consistency)
+            with torch.no_grad():  # Or enable_grad if backprop through it
+                mu_phi_hat, logvar_phi_hat, _ = model.phi_net(coords, y_next)  # lambda는 재사용 가능 but ignore
+
             u_pred = reparameterize_full(mu_u.detach(), cov_u.detach())
             t_prev = t_next
             loss, parts = stochastic_loss_fn(
-                mu_u, logvar_u, y_next, mu_phi, logvar_phi, lam, W,
-                l1_weight=cfg.l1_weight,
+                mu_u, logvar_u, y_next, mu_phi, logvar_phi, mu_phi_hat, logvar_phi_hat, lam, W,
+                l1_weight=cfg.l1_weight, 
                 mode_sparsity_weight=cfg.mode_sparsity_weight,
+                kl_phi_weight=cfg.kl_phi_weight,
+                cons_weight= cfg.cons_weight * (epoch / cfg.num_epochs)
             )
+
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             opt.step()
@@ -78,13 +103,7 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
         avg_loss_list.append(avg)
         if epoch % cfg.print_every == 0:
             print(f"Epoch {epoch:04d} | avg_loss={avg:.6f}")
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': opt.state_dict(),
-                'best_loss': best,
-                'loss_list': avg_loss_list
-            }, os.path.join(cfg.save_dir, f'ckpt_model_{epoch}.pt'))
+            # torchㄴsave_dir, f'ckpt_model_{epoch}.pt'))
         if avg < best:
             best = avg
             torch.save({

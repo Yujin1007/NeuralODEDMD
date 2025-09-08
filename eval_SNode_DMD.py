@@ -19,12 +19,12 @@ class FeedMode(enum.Enum):
     TEACHER = "teacher_forcing"
 
 
-def _prepare_model(cfg: Stochastic_Node_DMD_Config) -> Stochastic_NODE_DMD:
+def _prepare_model(cfg: Stochastic_Node_DMD_Config, model_name="best_model.pt") -> Stochastic_NODE_DMD:
     device = torch.device(cfg.device)
     model = Stochastic_NODE_DMD(
         cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps
     ).to(device)
-    ckpt = torch.load(os.path.join(cfg.save_dir, "best_model.pt"), map_location=device)
+    ckpt = torch.load(os.path.join(cfg.save_dir, model_name), map_location=device)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
     loss = ckpt["best_loss"]
@@ -115,7 +115,6 @@ def run_eval(cfg: Stochastic_Node_DMD_Config, mode: str = "teacher_forcing"):
 
     # --- 메인 루프
     for i in range(1, len(t_list)):
-        print(f"Step {i}:", end=" ")
         coords = coords_full
         y_true = y_true_full_list[i]
         t_prev = float(t_list[i - 1])
@@ -159,4 +158,4 @@ if __name__ == "__main__":
     # 기본값: teacher forcing
     run_eval(Stochastic_Node_DMD_Config(), mode="teacher_forcing")
     # 필요 시:
-    # run_eval(Stochastic_Node_DMD_Config(), mode="autoreg")
+    run_eval(Stochastic_Node_DMD_Config(), mode="autoreg")
