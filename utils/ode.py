@@ -238,8 +238,9 @@ def ode_euler_uncertainty(
     mode: str = "diag",            # "diag" | "full"
     backprop_mean: bool = True,
     backprop_cov: bool = False,    # 공분산 경로는 기본 no-grad로 가볍게
-    basic_dt: float = 0.1,
-    max_step: int = 200
+    basic_dt: float =0.1/50,  #0.1,
+    max_step: int = 2000,
+    update_cov: bool=True,
 ):
     """
     Drop-in 대체 버전:
@@ -275,62 +276,64 @@ def ode_euler_uncertainty(
         def f_flat(x_flat):
             x = x_flat.reshape(mu0.shape)
             return func(x, lambda_param, t).flatten()
+        if update_cov:
+            # 매 스텝마다 공분산 갱신
+            
+            if mode == "diag":
+                # Σ = diag(var)만 유지. A = I + dt*J.
+                # diag(A Σ A^T) = rowwise_sum( (A V) ∘ (A V) ),
+                #   where V = diag(sqrt(var)) (각 열이 가중 단위벡터)
+                with torch.no_grad() if not backprop_cov else torch.enable_grad():
+                    sqrt_var = torch.sqrt(torch.clamp(var, min=cov_eps))
+                    # V_cols: (n, n) 각 열이 sqrt(var) 단위기저
+                    # 메모리: n^2. n=2r이므로 r<=128 규모면 충분히 경량.
+                    V_cols = torch.diag(sqrt_var)  # (n, n)
 
-        if mode == "diag":
-            # Σ = diag(var)만 유지. A = I + dt*J.
-            # diag(A Σ A^T) = rowwise_sum( (A V) ∘ (A V) ),
-            #   where V = diag(sqrt(var)) (각 열이 가중 단위벡터)
-            with torch.no_grad() if not backprop_cov else torch.enable_grad():
-                sqrt_var = torch.sqrt(torch.clamp(var, min=cov_eps))
-                # V_cols: (n, n) 각 열이 sqrt(var) 단위기저
-                # 메모리: n^2. n=2r이므로 r<=128 규모면 충분히 경량.
-                V_cols = torch.diag(sqrt_var)  # (n, n)
+                    if _HAS_TORCH_FUNC:
+                        # vmap으로 각 열에 대해 jvp(f, mu; v) 병렬 평가
+                        cols = V_cols.t()  # (n, n) => 각 row가 한 column 벡터
+                        def _single(v_col):
+                            # jvp returns (f(mu), J v_col)
+                            _, Jv = jvp(f_flat, (mu_flat,), (v_col,))
+                            return v_col + dt * Jv  # A v_col
+                        AV_cols = vmap(_single)(cols)  # (n, n)
+                        AV = AV_cols.t()  # (n, n) 열 방면으로 정렬
+                    else:
+                        # torch.func 없으면 보수적으로 전체 J 계산 (fallback)
+                        J = _jacobian(f_flat, mu_flat, create_graph=False)  # (n, n)
+                        AV = V_cols + dt * (J @ V_cols)
+
+                    # diag(A Σ A^T) = sum_j AV[:, j]^2
+                    var = (AV * AV).sum(dim=1) + dt * process_noise
+                    var = torch.clamp(var, min=cov_eps)
+
+            elif mode == "full":
+                # Σ를 full로 유지: A = I + dt*J, Σ_next = A Σ A^T + dt*Q
+                # 초기 Σ = diag(var)
+                # (첫 스텝만 full Σ 구성, 이후부터 full 전파)
+                if not isinstance(var, torch.Tensor) or var.dim() == 1:
+                    cov = torch.diag(var).clone()
+                else:
+                    cov = var  # 이미 full-cov일 수 있음 (재호출 시)
 
                 if _HAS_TORCH_FUNC:
-                    # vmap으로 각 열에 대해 jvp(f, mu; v) 병렬 평가
-                    cols = V_cols.t()  # (n, n) => 각 row가 한 column 벡터
-                    def _single(v_col):
-                        # jvp returns (f(mu), J v_col)
-                        _, Jv = jvp(f_flat, (mu_flat,), (v_col,))
-                        return v_col + dt * Jv  # A v_col
-                    AV_cols = vmap(_single)(cols)  # (n, n)
-                    AV = AV_cols.t()  # (n, n) 열 방면으로 정렬
+                    with torch.no_grad() if not backprop_cov else torch.enable_grad():
+                        J = jacfwd(f_flat)(mu_flat)  # (n, n)
+                        A = eye + dt * J
+                        cov = A @ cov @ A.T + dt * process_noise * eye
+                        cov = (cov + cov.T) / 2 + cov_eps * eye
                 else:
-                    # torch.func 없으면 보수적으로 전체 J 계산 (fallback)
-                    J = _jacobian(f_flat, mu_flat, create_graph=False)  # (n, n)
-                    AV = V_cols + dt * (J @ V_cols)
+                    # fallback: autograd.functional.jacobian
+                    with torch.no_grad() if not backprop_cov else torch.enable_grad():
+                        J = _jacobian(f_flat, mu_flat, create_graph=False)  # (n, n)
+                        A = eye + dt * J
+                        cov = A @ cov @ A.T + dt * process_noise * eye
+                        cov = (cov + cov.T) / 2 + cov_eps * eye
 
-                # diag(A Σ A^T) = sum_j AV[:, j]^2
-                var = (AV * AV).sum(dim=1) + dt * process_noise
-                var = torch.clamp(var, min=cov_eps)
+                var = cov  # 다음 루프에서 그대로 사용
 
-        elif mode == "full":
-            # Σ를 full로 유지: A = I + dt*J, Σ_next = A Σ A^T + dt*Q
-            # 초기 Σ = diag(var)
-            # (첫 스텝만 full Σ 구성, 이후부터 full 전파)
-            if not isinstance(var, torch.Tensor) or var.dim() == 1:
-                cov = torch.diag(var).clone()
             else:
-                cov = var  # 이미 full-cov일 수 있음 (재호출 시)
-
-            if _HAS_TORCH_FUNC:
-                with torch.no_grad() if not backprop_cov else torch.enable_grad():
-                    J = jacfwd(f_flat)(mu_flat)  # (n, n)
-                    A = eye + dt * J
-                    cov = A @ cov @ A.T + dt * process_noise * eye
-                    cov = (cov + cov.T) / 2 + cov_eps * eye
-            else:
-                # fallback: autograd.functional.jacobian
-                with torch.no_grad() if not backprop_cov else torch.enable_grad():
-                    J = _jacobian(f_flat, mu_flat, create_graph=False)  # (n, n)
-                    A = eye + dt * J
-                    cov = A @ cov @ A.T + dt * process_noise * eye
-                    cov = (cov + cov.T) / 2 + cov_eps * eye
-
-            var = cov  # 다음 루프에서 그대로 사용
-
-        else:
-            raise ValueError("mode must be 'diag' or 'full'.")
+                raise ValueError("mode must be 'diag' or 'full'.")
 
         t += dt
 

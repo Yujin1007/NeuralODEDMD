@@ -1,8 +1,8 @@
-import torch
+
 from typing import List
 import numpy as np
 from torch.utils.data import Dataset
-
+import torch
 # Dataset generation (modified for NumPy)
 def make_grid(nx=32, ny=32):
     xs = np.linspace(-1.0, 1.0, nx)
@@ -94,6 +94,7 @@ def _cells_to_halfsizes_and_edge(nx, ny, size_cells, edge_soft_cells):
     return (hx, hy), eps
 def synth_sequence(
     T=20,
+    norm_T=None,
     resolution=(32,32),
     sample_ratio=0.1,
     sigma=0.1,
@@ -113,6 +114,8 @@ def synth_sequence(
     - 물체 크기는 격자 셀 개수로 지정(obj_size_cells).
     - 경로는 원형/폴리라인 예시 또는 사용자 정의 함수(path_fn)로 지정.
     """
+    if norm_T is None:
+        norm_T = T
     np.random.seed(seed)
     coords_full, shape = make_grid(resolution[0], resolution[1])
     nx, ny = shape
@@ -125,9 +128,10 @@ def synth_sequence(
     omega = np.array([ 2.00,  4.00,  1.00,  0.30])
     b = np.array([1.0+0.5j, 0.8-0.3j, 0.7+0.2j, 0.2+0.0j], dtype=np.complex64)
 
-    dt = 0.1  # time-step
+    # dt = 1/norm_T  # time-step
+    dt = 0.1
     t_list = list(range(T))
-
+    
     coords_list = []
     y_list = []
     y_true_list = []
@@ -186,7 +190,8 @@ def synth_sequence(
         y_list.append(y_t_noisy)
         y_true_list.append(y_t)
         y_true_full_list.append(I.astype(np.complex64))
-
+    t_list = [float(t) / norm_T for t in t_list]
+    
     return t_list, coords_list, y_list, y_true_list, y_true_full_list, coords_full, (alpha, omega, b), W_full
 
 
@@ -231,7 +236,10 @@ def synth_sequence(
 
 #     return t_list, coords_list, y_list, y_true_list, y_true_full_list, coords_full, (alpha, omega, b), W_full
 
-def load_synth(device: torch.device, T=20, resolution=(32,32)):
+
+
+# for NDMD execution, comment out below 
+def load_synth(device: torch.device, T=20, norm_T=None, resolution=(32,32)):
     """Loads synthetic sequence and converts to torch (real/imag split).
     Returns:
         t_list: list[float]
@@ -249,7 +257,7 @@ def load_synth(device: torch.device, T=20, resolution=(32,32)):
         coords_full,
         gt_params,
         W_full,
-    ) = synth_sequence(T=T, resolution=resolution)
+    ) = synth_sequence(T=T, norm_T=norm_T, resolution=resolution)
 
     def to_torch_split(lst: List[np.ndarray]):
         yr = [torch.from_numpy(np.real(y)).float().to(device) for y in lst]

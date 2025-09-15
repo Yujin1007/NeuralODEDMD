@@ -111,69 +111,18 @@ class PhiEncoder(nn.Module):
         else:
             raise ValueError("coords/y must be (m,2) or (B,m,2)")
 
-# # ---------------------------
-# # ODENet (Neural ODE drift)
-# # ---------------------------
-# class ODENet(nn.Module):
-#     def __init__(self, r: int, hidden_dim: int):
-#         super().__init__()
-#         self.r = r
-#         self.net = nn.Sequential(
-#             nn.Linear(r * 2 + r * 2 + 1, hidden_dim),
-#             nn.ReLU(),
-#             nn.Linear(hidden_dim, hidden_dim),
-#             nn.ReLU(),
-#             nn.Linear(hidden_dim, r * 2),
-#         )
+class ODE():
+    def __call__(self, *input, **kwargs):
+        return self.forward(*input, **kwargs)
 
-#     def forward(self, phi, lambda_param, t):
-#         """
-#         phi:           (r,2) or (B,r,2)
-#         lambda_param:  (r,2) or (B,r,2)   (broadcastable to phi)
-#         t:             scalar or (B,)
-#         returns:       (r,2) or (B,r,2)
-#         """
-#         if phi.dim() == 2:
-#             # 비배치
-#             r, two = phi.shape
-#             assert r == self.r and two == 2
-#             lam = lambda_param
-#             if lam.dim() == 2:
-#                 lam = lam
-#             elif lam.dim() == 1:
-#                 lam = lam.view(self.r, 2)
-#             else:
-#                 lam = lam.expand_as(phi)
+    def forward(self, phi, lambda_param, t):
 
-#             if not torch.is_tensor(t):
-#                 t = torch.tensor(t, dtype=phi.dtype, device=phi.device)
-#             t_feat = t.view(1).to(phi.dtype).to(phi.device)     # (1,)
-#             x = torch.cat([phi.reshape(-1), lam.reshape(-1), t_feat], dim=0)  # (4r+1,)
-#             out = self.net(x)                                   # (r*2,)
-#             return out.view(self.r, 2)
-
-#         elif phi.dim() == 3:
-#             # 배치
-#             B, r, two = phi.shape
-#             assert r == self.r and two == 2
-#             lam = lambda_param
-#             if lam.dim() == 2:
-#                 lam = lam.unsqueeze(0).expand(B, -1, -1)        # (B,r,2)
-#             elif lam.dim() == 3:
-#                 pass
-#             else:
-#                 raise ValueError("lambda_param must be (r,2) or (B,r,2)")
-#             if not torch.is_tensor(t):
-#                 t = torch.tensor(t, dtype=phi.dtype, device=phi.device)
-#             if t.dim() == 0:
-#                 t = t.repeat(B)                                 # (B,)
-#             t_feat = t.view(B, 1).to(phi.dtype).to(phi.device)  # (B,1)
-
-#             x = torch.cat([phi.reshape(B, -1), lam.reshape(B, -1), t_feat], dim=1)  # (B, 4r+1)
-#             out = self.net(x).view(B, self.r, 2)
-#             return out
-#         else:
-#             raise ValueError("phi must be (r,2) or (B,r,2)")
+        lam_complex = lambda_param[..., 0] + 1j * lambda_param[..., 1]  # (B,r)
+        phi_complex = phi[..., 0] + 1j * phi[..., 1]  # (B,r)
+        drift_complex = lam_complex * phi_complex  # (B,r)
+        drift = torch.stack([drift_complex.real, drift_complex.imag], dim=-1)  # (B,r,2)
+        return drift
+        
 class ODENet(nn.Module):
     def __init__(self, r: int, hidden_dim: int):
         super().__init__()
@@ -184,6 +133,7 @@ class ODENet(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, r * 2),
+            # nn.Tanh(), # for small correction
         )
     
     def forward(self, phi, lambda_param, t):
@@ -218,8 +168,8 @@ class ODENet(nn.Module):
             correction = out.view(self.r, 2)
             dphi = drift + correction  # Residual structure
                                 # (r*2,)
+            # print(f"{sum(drift.flatten().detach()**2)**0.5=}, {sum(correction.flatten().detach()**2)**0.5=}")
             return dphi
-            # return drift
 
         elif phi.dim() == 3:
             # 배치
@@ -253,6 +203,7 @@ class Stochastic_NODE_DMD(nn.Module):
         self.r = r
         self.phi_net = PhiEncoder(r, hidden_dim)
         self.ode_func = ODENet(r, hidden_dim)
+        # self.ode_func = ODE()
         self.mode_net = ModeExtractor(r, hidden_dim)
         self.ode_steps = ode_steps
         self.process_noise = process_noise

@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from typing import Tuple, List
-
+from utils.losses import stochastic_loss_fn
 from config.config import Stochastic_Node_DMD_Config
 from dataset.generate_synth_dataset import load_synth
 from models.node_dmd import Stochastic_NODE_DMD
@@ -35,7 +35,7 @@ def _prepare_model(cfg: Stochastic_Node_DMD_Config, model_name="best_model.pt") 
 
 def _prepare_data(cfg: Stochastic_Node_DMD_Config):
     device = torch.device(cfg.device)
-    return load_synth(device, T=cfg.eval_data_len, resolution=cfg.resolution)
+    return load_synth(device, T=cfg.eval_data_len, norm_T=cfg.data_len, resolution=cfg.resolution)
 
 
 def _compute_vmin_vmax(y_true_full_list: List[torch.Tensor]) -> Tuple[float, float]:
@@ -126,8 +126,16 @@ def run_eval(cfg: Stochastic_Node_DMD_Config, mode: str = "teacher_forcing"):
             # autoreg: 첫 스텝은 초기 truth에서 시작, 이후는 직전 예측을 연결
             y_in = y_pred_chain
 
-        mu_u, logvar_u, *_ = model(coords, y_in, t_prev, t_next)
-
+        mu_u, logvar_u, cov_u, mu_phi, logvar_phi,lam,W = model(coords, y_in, t_prev, t_next)
+        mu_phi_hat, logvar_phi_hat, _ = model.phi_net(coords, mu_u)
+        loss, parts = stochastic_loss_fn(
+                mu_u, logvar_u, y_true, mu_phi, logvar_phi, mu_phi_hat, logvar_phi_hat, lam, W,
+                l1_weight=cfg.l1_weight, 
+                mode_sparsity_weight=cfg.mode_sparsity_weight,
+                kl_phi_weight=cfg.kl_phi_weight,
+                cons_weight= cfg.cons_weight
+            )
+        # print(f"time {i}", parts)
         # 다음 스텝 오토레그 입력 업데이트
         if feed_mode == FeedMode.AUTOREG:
             y_pred_chain = mu_u
@@ -135,7 +143,8 @@ def run_eval(cfg: Stochastic_Node_DMD_Config, mode: str = "teacher_forcing"):
         # --- MSE 및 플롯
         mse = F.mse_loss(mu_u, y_true).item()
         mse_full_all.append(mse)
-        plot_reconstruction(coords, t_next, y_true, mu_u, mse, out_dir, vmin, vmax)
+        # plot_reconstruction(coords, t_next, y_true, mu_u, mse, out_dir, vmin, vmax)
+        plot_reconstruction(coords, i, y_true, mu_u, mse, out_dir, vmin, vmax)
 
         # --- (B) 관측 서브셋(노이즈 포함)에서 불확실성 캘리브레이션
         y_obs      = y_list[i]         # noisy measurement at t_next (subset coords_list[0])
@@ -155,7 +164,7 @@ def run_eval(cfg: Stochastic_Node_DMD_Config, mode: str = "teacher_forcing"):
 
 
 if __name__ == "__main__":
-    # 기본값: teacher forcing
-    run_eval(Stochastic_Node_DMD_Config(), mode="teacher_forcing")
-    # 필요 시:
+    
     run_eval(Stochastic_Node_DMD_Config(), mode="autoreg")
+    run_eval(Stochastic_Node_DMD_Config(), mode="teacher_forcing")
+    

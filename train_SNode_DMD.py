@@ -52,10 +52,20 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
         process_noise=cfg.process_noise,
         cov_eps=cfg.cov_eps,
     ).to(device)
-    # pretrained_path = "results/stochastic/run11"
+    # pretrained_path = "results/stochastic/run23"
     # model = _prepare_model(cfg, pretrained_path)
 
-    opt = optim.Adam(model.parameters(), lr=cfg.lr)
+    
+
+    import math
+    initial_lr = 5e-4
+    final_lr = 1e-5
+    opt = optim.Adam(model.parameters(), lr=initial_lr)
+    decay_rate = (final_lr / initial_lr) ** (1 / cfg.num_epochs)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        opt,
+        lr_lambda=lambda epoch: decay_rate ** epoch
+    )
     best = float("inf")
     ensure_dir(cfg.save_dir)
     
@@ -67,6 +77,8 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
         t_prev = torch.tensor(t_list[0], dtype=torch.float32, device=device).unsqueeze(0).repeat(cfg.batch_size, )
         u_pred = y_list[0]
         t_prev = t_prev.item()
+        teacher_prob = min(1, 1 - (2*epoch / cfg.num_epochs)) # min(1, 1.4 - (epoch * 1.5 / cfg.num_epochs)) #run17
+        # teacher_prob = 0
         for batch in dataloader:
             t_next, coords, y_next, y_prev = [x.to(device) for x in batch]
             # print(f"shape t_next {t_next[0].shape}, coords {coords[0].shape}, y_next {y_next[0].shape}")
@@ -76,20 +88,25 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
             y_prev   = y_prev.squeeze(0)       # [1,102,2] -> [102,2]
 
             opt.zero_grad()
-            # mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lam, W = model(coords, u_pred, t_prev, t_next)
-            mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lam, W = model(coords, y_prev, t_prev, t_next)
-            # Observed phi_t from y_next (consistency)
-            with torch.no_grad():  # Or enable_grad if backprop through it
-                mu_phi_hat, logvar_phi_hat, _ = model.phi_net(coords, y_next)  # lambda는 재사용 가능 but ignore
-
-            u_pred = reparameterize_full(mu_u.detach(), cov_u.detach())
+            
+            if random.random() < teacher_prob:
+                mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lam, W = model(coords, y_prev, t_prev, t_next)
+                u_pred = reparameterize_full(mu_u.detach(), cov_u.detach())
+                with torch.no_grad():  # Or enable_grad if backprop through it
+                    mu_phi_hat, logvar_phi_hat, _ = model.phi_net(coords, y_next)
+            else:
+                mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lam, W = model(coords, u_pred, t_prev, t_next)
+                u_pred = reparameterize_full(mu_u.detach(), cov_u.detach())
+                with torch.no_grad():  # Or enable_grad if backprop through it
+                    mu_phi_hat, logvar_phi_hat, _ = model.phi_net(coords, u_pred)
             t_prev = t_next
             loss, parts = stochastic_loss_fn(
                 mu_u, logvar_u, y_next, mu_phi, logvar_phi, mu_phi_hat, logvar_phi_hat, lam, W,
                 l1_weight=cfg.l1_weight, 
                 mode_sparsity_weight=cfg.mode_sparsity_weight,
                 kl_phi_weight=cfg.kl_phi_weight,
-                cons_weight= cfg.cons_weight * (epoch / cfg.num_epochs)
+                cons_weight= cfg.cons_weight * min((epoch / cfg.num_epochs), 1) 
+                # cons_weight= cfg.cons_weight
             )
 
             loss.backward()
@@ -101,9 +118,16 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
 
         avg = total_loss / num_batches if num_batches > 0 else float('inf')
         avg_loss_list.append(avg)
+        scheduler.step()
         if epoch % cfg.print_every == 0:
-            print(f"Epoch {epoch:04d} | avg_loss={avg:.6f}")
-            # torchㄴsave_dir, f'ckpt_model_{epoch}.pt'))
+            print(f"Epoch {epoch:04d} | avg_loss={avg:.6f} | lr={scheduler.get_last_lr()[0]:.4f}")
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': opt.state_dict(),
+                'best_loss': best,
+                'loss_list': avg_loss_list
+            }, os.path.join(cfg.save_dir, f'model_{epoch}.pt'))
         if avg < best:
             best = avg
             torch.save({
