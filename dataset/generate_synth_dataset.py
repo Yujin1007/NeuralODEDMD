@@ -190,7 +190,8 @@ def synth_sequence(
         y_list.append(y_t_noisy)
         y_true_list.append(y_t)
         y_true_full_list.append(I.astype(np.complex64))
-    t_list = [float(t) / norm_T for t in t_list]
+    # t_list = [float(t) / norm_T for t in t_list]
+    t_list = [float(t) * 0.1 for t in t_list]
     
     return t_list, coords_list, y_list, y_true_list, y_true_full_list, coords_full, (alpha, omega, b), W_full
 
@@ -318,3 +319,39 @@ class SynthDataset(Dataset):
         y_prev = self.y_list[idx]
         y_next = self.y_list[idx + 1]
         return t_next, coords, y_next, y_prev
+
+class SynthDataset_seq(Dataset):
+    def __init__(self, t_list, coords_list, y_list, K):
+        """
+        Custom dataset for synthetic sequence data.
+        
+        Args:
+            t_list: List of time steps (float or int)
+            coords_list: List of coordinate tensors [m, 2]
+            y_list: List of observation tensors [m, 2] (real, imag)
+        """
+        self.t_list = t_list
+        self.coords_list = coords_list
+        self.y_list = y_list
+        self.length = len(t_list) - 1 - K  # Number of (t_prev, t_next) pairs
+        self.K = K # sequential data that I'm loading in single step 
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, idx):
+        """
+        Returns data for one time step transition.
+        
+        Returns:
+            t_prev: Float, previous time step
+            t_next: Float, next time step
+            coords: Tensor[m, 2], coordinates at t_next
+            y_prev: Tensor[m, 2], observation at t_prev
+            y_next: Tensor[m, 2], observation at t_next
+        """
+        # t_prev = float(self.t_list[idx])
+        t_next = self.t_list[idx + 1:idx + 1+self.K]
+        coords = self.coords_list[idx + 1:idx + 1+self.K]
+        y_prev = self.y_list[idx: idx+self.K]
+        y_next = self.y_list[idx + 1: idx + 1+self.K]
+        return t_next, coords, y_next, y_prev 
