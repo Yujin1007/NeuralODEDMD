@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import os
+import imageio
 
 def plot_loss(avg_loss_list, out_dir, filename="loss.png"):
     epochs = list(range(len(avg_loss_list)))  # 0부터 시작하는 epoch index
@@ -24,6 +25,7 @@ def plot_reconstruction(coords, t, y_true, u_pred, mse, out_dir, vmin, vmax):
     plt.scatter(coords[:, 0].cpu().numpy(), coords[:, 1].cpu().numpy(), c=u_pred[:, 0].cpu().numpy(), cmap='viridis', vmin=vmin, vmax=vmax)
     plt.title(f'Pred Real Part at t={t}, MSE: {mse:.3f}')
     plt.colorbar()
-
-    plt.savefig(os.path.join(out_dir, f'prediction_t{t}.png'), dpi=150, bbox_inches='tight')
+    save_name = os.path.join(out_dir, f'prediction_t{t}.png')
+    plt.savefig(save_name, dpi=150, bbox_inches='tight')
     plt.close()
+    return imageio.imread(save_name)

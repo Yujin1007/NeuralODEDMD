@@ -12,7 +12,7 @@ from dataset.generate_synth_dataset import load_synth
 from models.node_dmd import Stochastic_NODE_DMD
 from utils.utils import ensure_dir, eval_uncertainty_metrics, find_subset_indices
 from utils.plots import plot_reconstruction
-
+import imageio
 
 class FeedMode(enum.Enum):
     AUTOREG = "autoreg"
@@ -22,7 +22,7 @@ class FeedMode(enum.Enum):
 def _prepare_model(cfg: Stochastic_Node_DMD_Config, model_name="best_model.pt") -> Stochastic_NODE_DMD:
     device = torch.device(cfg.device)
     model = Stochastic_NODE_DMD(
-        cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps
+        cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps, cfg.dt
     ).to(device)
     ckpt = torch.load(os.path.join(cfg.save_dir, model_name), map_location=device)
     model.load_state_dict(ckpt["model_state_dict"])
@@ -35,7 +35,7 @@ def _prepare_model(cfg: Stochastic_Node_DMD_Config, model_name="best_model.pt") 
 
 def _prepare_data(cfg: Stochastic_Node_DMD_Config):
     device = torch.device(cfg.device)
-    return load_synth(device, T=cfg.eval_data_len, norm_T=cfg.data_len, resolution=cfg.resolution)
+    return load_synth(device, T=cfg.eval_data_len, norm_T=cfg.data_len, resolution=cfg.resolution, dt=cfg.dt)
 
 
 def _compute_vmin_vmax(y_true_full_list: List[torch.Tensor]) -> Tuple[float, float]:
@@ -97,22 +97,24 @@ def run_eval(cfg: Stochastic_Node_DMD_Config, mode: str = "teacher_forcing"):
         *_,
     ) = _prepare_data(cfg)
 
-    model = _prepare_model(cfg)
+    model = _prepare_model(cfg, "model_1000.pt")
     # import time
     # time.sleep(1e6)
     vmin, vmax = _compute_vmin_vmax(y_true_full_list)
 
-    out_dir = os.path.join(cfg.save_dir, feed_mode.value)
-    ensure_dir(out_dir)
+    # out_dir = os.path.join(cfg.save_dir, feed_mode.value)
+    # ensure_dir(out_dir)
 
     coords_idx = find_subset_indices(coords_full, coords_list[0])
 
     mse_full_all = []
     calib_all    = []
-
+    out_dir = os.path.join(cfg.save_dir, f"{feed_mode.value}_reconstruction")
+    ensure_dir(out_dir)
     # --- 초기 y_in 설정 (AUTOREG 전용)
     y_pred_chain = y_true_full_list[0] if feed_mode == FeedMode.AUTOREG else None
-
+    frame = plot_reconstruction(coords_full, 0,  y_true_full_list[0],  y_true_full_list[0], 0, out_dir, vmin, vmax)
+    frames = [frame]    
     # --- 메인 루프
     for i in range(1, len(t_list)):
         coords = coords_full
@@ -130,6 +132,7 @@ def run_eval(cfg: Stochastic_Node_DMD_Config, mode: str = "teacher_forcing"):
         mu_phi_hat, logvar_phi_hat, _ = model.phi_net(coords, mu_u)
         loss, parts = stochastic_loss_fn(
                 mu_u, logvar_u, y_true, mu_phi, logvar_phi, mu_phi_hat, logvar_phi_hat, lam, W,
+                recon_weight=cfg.recon_weight,
                 l1_weight=cfg.l1_weight, 
                 mode_sparsity_weight=cfg.mode_sparsity_weight,
                 kl_phi_weight=cfg.kl_phi_weight,
@@ -144,8 +147,8 @@ def run_eval(cfg: Stochastic_Node_DMD_Config, mode: str = "teacher_forcing"):
         mse = F.mse_loss(mu_u, y_true).item()
         mse_full_all.append(mse)
         # plot_reconstruction(coords, t_next, y_true, mu_u, mse, out_dir, vmin, vmax)
-        plot_reconstruction(coords, i, y_true, mu_u, mse, out_dir, vmin, vmax)
-
+        frame = plot_reconstruction(coords, i, y_true, mu_u, mse, out_dir, vmin, vmax)
+        frames.append(frame)
         # --- (B) 관측 서브셋(노이즈 포함)에서 불확실성 캘리브레이션
         y_obs      = y_list[i]         # noisy measurement at t_next (subset coords_list[0])
         y_clean    = y_true_list[i]    # clean target at subset
@@ -158,13 +161,63 @@ def run_eval(cfg: Stochastic_Node_DMD_Config, mode: str = "teacher_forcing"):
         metrics["time_index"] = i
         metrics["mse_full"]   = mse
         calib_all.append(metrics)
+        if i == cfg.data_len:
+            _summarize_and_dump(calib_all, mse_full_all, out_dir, feed_mode)
+            mse_full_all = []
+            calib_all    = []
+            metrics = {}
 
+            imageio.mimsave(f"{out_dir}/reconstruction.gif", frames, fps=10) 
+
+        if i > cfg.data_len:
+            out_dir = os.path.join(cfg.save_dir, f"{feed_mode.value}_exploitation")
+            ensure_dir(out_dir)
     # --- 저장 및 요약 출력
+    imageio.mimsave(f"{out_dir}/exploitation.gif", frames, fps=10)  # fps 조정 가능   
     _summarize_and_dump(calib_all, mse_full_all, out_dir, feed_mode)
 
 
 if __name__ == "__main__":
-    
-    run_eval(Stochastic_Node_DMD_Config(), mode="autoreg")
-    run_eval(Stochastic_Node_DMD_Config(), mode="teacher_forcing")
-    
+
+    import argparse
+    parser = argparse.ArgumentParser(description="Evaluate SNode DMD with config from directory.")
+    parser.add_argument("--config_dir", type=str, required=True, help="Directory containing Stochastic_Node_DMD_Config.txt")
+    args = parser.parse_args()
+
+    # Load config from txt file
+    config_path = os.path.join(args.config_dir, "Stochastic_Node_DMD_Config.txt")
+    import ast
+    config_dict = {}
+    with open(config_path, "r") as f:
+        for line in f:
+            if ":" in line:
+                k, v = line.strip().split(":", 1)
+                k = k.strip()
+                v = v.strip()
+                # Try to parse tuple/list, int, float, bool, or leave as string
+                if v.lower() == "true":
+                    v = True
+                elif v.lower() == "false":
+                    v = False
+                else:
+                    try:
+                        # Try tuple/list parsing
+                        if ("," in v) or (v.startswith("(") and v.endswith(")")):
+                            v = ast.literal_eval(v)
+                        else:
+                            v = int(v)
+                    except (ValueError, SyntaxError):
+                        try:
+                            v = float(v)
+                        except ValueError:
+                            pass
+                config_dict[k] = v
+
+    # Create config object
+    cfg = Stochastic_Node_DMD_Config()
+    for k, v in config_dict.items():
+        if hasattr(cfg, k):
+            setattr(cfg, k, v)
+
+    run_eval(cfg, mode="teacher_forcing")
+    run_eval(cfg, mode="autoreg")

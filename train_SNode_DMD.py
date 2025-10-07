@@ -36,14 +36,14 @@ def _prepare_model(cfg: Stochastic_Node_DMD_Config, pretrained_path: str, model_
 def run_train(cfg: Stochastic_Node_DMD_Config):
     set_seed(cfg.seed)
     device = torch.device(cfg.device)
-    t_list, coords_list, y_list, *_ = load_synth(device, T=cfg.data_len)
+    t_list, coords_list, y_list, *_ = load_synth(device, T=cfg.data_len, norm_T=cfg.data_len, resolution=cfg.resolution, dt=cfg.dt, normalize_t=cfg.normalize_t)
     dataset = SynthDataset(t_list, coords_list, y_list)
     dataloader = DataLoader(
         dataset,
-        batch_size=cfg.batch_size,  # Add  batch_size to your config
-        shuffle=False,  # Set to True if you want to shuffle time steps
-        num_workers=0,  # Set to >0 for parallel loading, but 0 is fine for small datasets
-        drop_last=True  # Keep the last incomplete batch
+        batch_size=cfg.batch_size,
+        shuffle=False,
+        num_workers=0,
+        drop_last=True
     )   
     model = Stochastic_NODE_DMD(
         r=cfg.r,
@@ -51,15 +51,20 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
         ode_steps=cfg.ode_steps,
         process_noise=cfg.process_noise,
         cov_eps=cfg.cov_eps,
+        dt=cfg.dt
     ).to(device)
     # pretrained_path = "results/stochastic/run23"
     # model = _prepare_model(cfg, pretrained_path)
 
-    
+    # Save config to output directory
+    ensure_dir(cfg.save_dir)
+    config_path = os.path.join(cfg.save_dir, "Stochastic_Node_DMD_Config.txt")
+    with open(config_path, "w") as f:
+        for k, v in vars(cfg).items():
+            f.write(f"{k}: {v}\n")
 
-    import math
-    initial_lr = 5e-4
-    final_lr = 1e-5
+    initial_lr = cfg.lr
+    final_lr = initial_lr * 0.02
     opt = optim.Adam(model.parameters(), lr=initial_lr)
     decay_rate = (final_lr / initial_lr) ** (1 / cfg.num_epochs)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
@@ -67,25 +72,26 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
         lr_lambda=lambda epoch: decay_rate ** epoch
     )
     best = float("inf")
-    ensure_dir(cfg.save_dir)
     
     avg_loss_list = []
     for epoch in trange(cfg.num_epochs, desc="Training"):
         total_loss = 0.0
         num_batches = 0
-        # u_pred = y_list[0].unsqueeze(0).repeat(cfg.batch_size, *([1] * y_list[0].dim())).to(device)
-        t_prev = torch.tensor(t_list[0], dtype=torch.float32, device=device).unsqueeze(0).repeat(cfg.batch_size, )
-        u_pred = y_list[0]
-        t_prev = t_prev.item()
-        teacher_prob = min(1, 1 - (2*epoch / cfg.num_epochs)) # min(1, 1.4 - (epoch * 1.5 / cfg.num_epochs)) #run17
-        # teacher_prob = 0
+        # t_prev = torch.tensor(t_list[0], dtype=torch.float32, device=device).unsqueeze(0).repeat(cfg.batch_size, )
+        # u_pred = y_list[0]
+        # t_prev = t_prev.item()
+        if cfg.train_mode == "teacher_forcing":
+            teacher_prob = 1
+        elif cfg.train_mode == "autoreg":
+            teacher_prob = 0
+        elif cfg.train_mode == "evolve":
+            teacher_prob = min(1, 1 - (2*epoch / cfg.num_epochs)) # min(1, 1.4 - (epoch * 1.5 / cfg.num_epochs)) #run17
         for batch in dataloader:
-            t_next, coords, y_next, y_prev = [x.to(device) for x in batch]
-            # print(f"shape t_next {t_next[0].shape}, coords {coords[0].shape}, y_next {y_next[0].shape}")
-            t_next = t_next.item()          # converts 0-dim tensor or [1] tensor to a Python float
-            coords   = coords.squeeze(0)       # [1,102,2] -> [102,2]
-            y_next   = y_next.squeeze(0)       # [1,102,2] -> [102,2]
-            y_prev   = y_prev.squeeze(0)       # [1,102,2] -> [102,2]
+            t_prev, t_next, coords, y_next, y_prev = [x.to(device) for x in batch]
+            # t_next = t_next.item()          # converts 0-dim tensor or [1] tensor to a Python float
+            # coords   = coords.squeeze(0)       # [1,102,2] -> [102,2]
+            # y_next   = y_next.squeeze(0)       # [1,102,2] -> [102,2]
+            # y_prev   = y_prev.squeeze(0)       # [1,102,2] -> [102,2]
 
             opt.zero_grad()
             
@@ -102,13 +108,12 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
             t_prev = t_next
             loss, parts = stochastic_loss_fn(
                 mu_u, logvar_u, y_next, mu_phi, logvar_phi, mu_phi_hat, logvar_phi_hat, lam, W,
+                recon_weight=cfg.recon_weight,
                 l1_weight=cfg.l1_weight, 
                 mode_sparsity_weight=cfg.mode_sparsity_weight,
                 kl_phi_weight=cfg.kl_phi_weight,
                 cons_weight= cfg.cons_weight * min((epoch / cfg.num_epochs), 1) 
-                # cons_weight= cfg.cons_weight
             )
-
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             opt.step()
@@ -128,6 +133,7 @@ def run_train(cfg: Stochastic_Node_DMD_Config):
                 'best_loss': best,
                 'loss_list': avg_loss_list
             }, os.path.join(cfg.save_dir, f'model_{epoch}.pt'))
+            plot_loss(avg_loss_list, cfg.save_dir)
         if avg < best:
             best = avg
             torch.save({

@@ -8,7 +8,7 @@ def gaussian_nll_loss(y, mu, logvar):
 _nll = nn.GaussianNLLLoss(eps=1e-6, reduction='mean')
 
 def stochastic_loss_fn(mu_u, logvar_u, y_next, mu_phi, logvar_phi, mu_phi_hat, logvar_phi_hat, lambda_param, W, *,
-              l1_weight: float, mode_sparsity_weight: float, kl_phi_weight: float, cons_weight: float):
+              recon_weight: float, l1_weight: float, mode_sparsity_weight: float, kl_phi_weight: float, cons_weight: float):
     var_u = torch.exp(logvar_u)
     recon = _nll(mu_u, y_next, var_u)
     kl_phi = -0.5 * torch.sum(1 + logvar_phi - mu_phi.pow(2) - logvar_phi.exp())
@@ -16,7 +16,7 @@ def stochastic_loss_fn(mu_u, logvar_u, y_next, mu_phi, logvar_phi, mu_phi_hat, l
     mode_mags = torch.sqrt(W[..., 0].pow(2) + W[..., 1].pow(2))  # (m,r)
     sparsity = mode_sparsity_weight * mode_mags.mean(dim=0).sum()
     cons_loss = consistency_loss(mu_phi_hat, logvar_phi_hat, mu_phi, logvar_phi, weight=cons_weight)
-    loss = recon + kl_phi_weight * kl_phi + l1_lambda + sparsity + cons_loss
+    loss = recon_weight * recon + kl_phi_weight * kl_phi + l1_lambda + sparsity + cons_loss
     # print(f"Loss components: recon={recon}, kl={kl_phi}, l1={l1_lambda}, sp={sparsity}, cons={cons_loss}")
     if not torch.isfinite(loss):
         raise ValueError(f"Non-finite loss detected: recon={recon}, kl={kl_phi}, l1={l1_lambda}, sp={sparsity}, cons={cons_loss}\nlambda={lambda_param}")
