@@ -208,3 +208,6 @@ __marimo__/
 
 # PNG files
 *.png
+*.tar.gz
+*.zip
+*.pt
