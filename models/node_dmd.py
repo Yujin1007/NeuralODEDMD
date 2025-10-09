@@ -8,6 +8,7 @@ from utils.ode import ode_euler_uncertainty
 # ---------------------------
 # 유틸: 배치/비배치 통일 헬퍼
 # ---------------------------
+
 def _ensure_batch(x, batch_dim=0):
     """입력이 비배치라면 batch 차원(=0)을 추가하고, 배치 여부(bool)도 함께 반환."""
     if x is None:
@@ -26,7 +27,39 @@ def _ensure_batch(x, batch_dim=0):
 def _is_batched_coords(coords):
     # coords: (m,2) or (B,m,2)
     return coords.dim() == 3
+import math
 
+class PositionalEncoding(nn.Module):
+    def __init__(self, num_frequencies=8, include_input=True):
+        super().__init__()
+        self.num_frequencies = num_frequencies
+        self.include_input = include_input
+        self.freq_bands = 2 ** torch.linspace(0, num_frequencies - 1, num_frequencies) * math.pi
+
+    def forward(self, coords):
+        """
+        coords: (m,2) or (B,m,2)
+        returns: (m, 2*2*num_frequencies [+2 if include_input]) or batched version
+        """
+        if coords.dim() == 2:
+            out = []
+            if self.include_input:
+                out.append(coords)
+            for freq in self.freq_bands.to(coords.device):
+                out.append(torch.sin(freq * coords))
+                out.append(torch.cos(freq * coords))
+            return torch.cat(out, dim=-1)
+        elif coords.dim() == 3:
+            B, m, _ = coords.shape
+            out = []
+            if self.include_input:
+                out.append(coords)
+            for freq in self.freq_bands.to(coords.device):
+                out.append(torch.sin(freq * coords))
+                out.append(torch.cos(freq * coords))
+            return torch.cat(out, dim=-1)
+        else:
+            raise ValueError("coords must be (m,2) or (B,m,2)")
 # ---------------------------
 # Mode extractor
 # ---------------------------
@@ -58,7 +91,33 @@ class ModeExtractor(nn.Module):
             return out                           # (B, m, r, 2)
         else:
             raise ValueError("coords must be (m,2) or (B,m,2)")
+class ModeExtractor2(nn.Module):
+    def __init__(self, r: int, hidden_dim: int, num_frequencies: int = 8):
+        super().__init__()
+        self.r = r
+        self.posenc = PositionalEncoding(num_frequencies=num_frequencies)
+        in_dim = (2 * (2 * num_frequencies) + 2)  # sin/cos pair * 2D + original coords if include_input=True
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, r * 2),
+        )
 
+    def forward(self, coords):
+        coords_emb = self.posenc(coords)  # (m, emb_dim)
+        if coords_emb.dim() == 2:
+            m = coords_emb.size(0)
+            out = self.net(coords_emb)
+            return out.view(m, self.r, 2)
+        elif coords_emb.dim() == 3:
+            B, m, _ = coords_emb.shape
+            x = coords_emb.reshape(B * m, -1)
+            out = self.net(x).view(B, m, self.r, 2)
+            return out
+        else:
+            raise ValueError("coords must be (m,2) or (B,m,2)")
 # ---------------------------
 # PhiEncoder
 # ---------------------------
@@ -110,7 +169,46 @@ class PhiEncoder(nn.Module):
             return mu, logvar, lambda_param
         else:
             raise ValueError("coords/y must be (m,2) or (B,m,2)")
+class PhiEncoder2(nn.Module):
+    def __init__(self, r: int, hidden_dim: int, num_frequencies: int = 3):
+        super().__init__()
+        self.r = r
+        self.posenc = PositionalEncoding(num_frequencies=num_frequencies)
+        in_dim = (2 * (2 * num_frequencies) + 2) + 2  # encoded coords + y(2)
+        self.embed = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+        )
+        self.pool = nn.Linear(hidden_dim, hidden_dim)
+        self.phi_mu = nn.Linear(hidden_dim, r * 2)
+        self.phi_logvar = nn.Linear(hidden_dim, r * 2)
+        self.lambda_out = nn.Linear(hidden_dim, r * 2)
 
+    def forward(self, coords, y):
+        coords_emb = self.posenc(coords)
+        if coords_emb.dim() == 2:
+            x = torch.cat([coords_emb, y], dim=-1)
+            h = self.embed(x)
+            pooled = h.mean(dim=0)
+            pooled = F.relu(self.pool(pooled))
+            mu = self.phi_mu(pooled).view(self.r, 2)
+            logvar = self.phi_logvar(pooled).view(self.r, 2)
+            lambda_param = self.lambda_out(pooled).view(self.r, 2)
+            return mu, logvar, lambda_param
+        elif coords_emb.dim() == 3:
+            B, m, _ = coords_emb.shape
+            x = torch.cat([coords_emb, y], dim=-1)
+            h = self.embed(x.view(B * m, -1)).view(B, m, -1)
+            pooled = h.mean(dim=1)
+            pooled = F.relu(self.pool(pooled))
+            mu = self.phi_mu(pooled).view(B, self.r, 2)
+            logvar = self.phi_logvar(pooled).view(B, self.r, 2)
+            lambda_param = self.lambda_out(pooled).view(B, self.r, 2)
+            return mu, logvar, lambda_param
+        else:
+            raise ValueError("coords/y must be (m,2) or (B,m,2)")
 class ODE():
     def __call__(self, *input, **kwargs):
         return self.forward(*input, **kwargs)
@@ -342,10 +440,12 @@ class Stochastic_NODE_DMD(nn.Module):
         super().__init__()
         self.r = r
         self.phi_net = PhiEncoder(r, hidden_dim)
+        # self.phi_net = PhiEncoder2(r, hidden_dim)
         self.ode_func = ODENet(r, hidden_dim)
         # self.ode_func = ODENet2(r, hidden_dim, dt)
         # self.ode_func = ODE()
         self.mode_net = ModeExtractor(r, hidden_dim)
+        # self.mode_net = ModeExtractor2(r, hidden_dim)
         self.process_noise = process_noise
         self.cov_eps = cov_eps
         # self.ode_dt = dt *0.1
@@ -395,7 +495,17 @@ class Stochastic_NODE_DMD(nn.Module):
         else:
             var_u = torch.clamp(torch.diagonal(cov_u), min=model.cov_eps).view(m, 2)
             logvar_u = torch.log(var_u)
-        
+        # var_phi = torch.diagonal(cov_phi_next, dim1=-2, dim2=-1)
+        # var_u = torch.einsum('...ik,...k->...i', M*M, var_phi)
+        # cov_u = var_u
+        # if coords.dim() == 3:
+        #     B, m, _ = coords.shape
+        #     var_u = var_u.view(B, m, 2)
+        #     logvar_u = torch.log(var_u.view(B, m, 2))
+        # else:
+        #     m = coords.shape[0]
+        #     var_u = var_u.view(m, 2)
+        #     logvar_u = torch.log(var_u)
 
         return mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lambda_param, W
     
