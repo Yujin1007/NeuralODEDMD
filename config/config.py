@@ -82,7 +82,7 @@ class Navier_Stokes_Config:
     kl_phi_weight: float = 1e-4
     cons_weight: float = 0.15
     recon_weight: float = 1.
-    save_dir: str = "results/navier_stokes_obstacle/run5"
+    save_dir: str = "results/navier_stokes_obstacle/run9_w_lambda"
     print_every: int = 500
     ode_steps: int = 5
     process_noise: float = 1e-5

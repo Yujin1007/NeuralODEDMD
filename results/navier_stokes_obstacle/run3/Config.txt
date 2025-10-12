@@ -19,7 +19,7 @@ process_noise: 1e-05
 r: 8
 recon_weight: 1.0
 sample_ratio: 0.2
-save_dir: results/navier_stokes/run3
+save_dir: results/navier_stokes_obstacle/run3
 seed: 42
 sigma: 0.001
 train_mode: autoreg
