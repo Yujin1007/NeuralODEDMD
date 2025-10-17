@@ -35,7 +35,7 @@ class PositionalEncoding(nn.Module):
         self.num_frequencies = num_frequencies
         self.include_input = include_input
         self.freq_bands = 2 ** torch.linspace(0, num_frequencies - 1, num_frequencies) * math.pi
-
+        # self.freq_bands = torch.linspace(1, num_frequencies, num_frequencies) * math.pi
     def forward(self, coords):
         """
         coords: (m,2) or (B,m,2)
@@ -60,6 +60,7 @@ class PositionalEncoding(nn.Module):
             return torch.cat(out, dim=-1)
         else:
             raise ValueError("coords must be (m,2) or (B,m,2)")
+
 def stabilize_lambda(raw_lambda, min_decay=1e-3, w_scale=10.0):
     # raw_lambda: (...,2) -> (...,2)
     real_raw, imag_raw = raw_lambda[...,0], raw_lambda[...,1]
@@ -124,6 +125,7 @@ class ModeExtractor2(nn.Module):
             return out
         else:
             raise ValueError("coords must be (m,2) or (B,m,2)")
+
 # ---------------------------
 # PhiEncoder
 # ---------------------------
@@ -177,6 +179,7 @@ class PhiEncoder(nn.Module):
             return mu, logvar, lambda_param
         else:
             raise ValueError("coords/y must be (m,2) or (B,m,2)")
+
 class PhiEncoder2(nn.Module):
     def __init__(self, r: int, hidden_dim: int, num_frequencies: int = 3):
         super().__init__()
@@ -219,6 +222,7 @@ class PhiEncoder2(nn.Module):
             return mu, logvar, lambda_param
         else:
             raise ValueError("coords/y must be (m,2) or (B,m,2)")
+
 class ODE():
     def __call__(self, *input, **kwargs):
         return self.forward(*input, **kwargs)
@@ -309,15 +313,19 @@ class ODENet(nn.Module):
 # 메인 모듈
 # ---------------------------
 class Stochastic_NODE_DMD(nn.Module):
-    def __init__(self, r: int, hidden_dim: int, ode_steps: int, process_noise: float, cov_eps: float, dt: float):
+    def __init__(self, r: int, hidden_dim: int, ode_steps: int, process_noise: float, cov_eps: float, dt: float, mode_frequency: int, phi_frequency=None):
         super().__init__()
         self.r = r
-        # self.phi_net = PhiEncoder(r, hidden_dim)
-        self.phi_net = PhiEncoder2(r, hidden_dim)
         self.ode_func = ODENet(r, hidden_dim)
         # self.ode_func = ODE()
-        # self.mode_net = ModeExtractor(r, hidden_dim)
-        self.mode_net = ModeExtractor2(r, hidden_dim)
+        if mode_frequency is None or type(mode_frequency) is not int:
+            self.mode_net = ModeExtractor(r, hidden_dim)
+        else:
+            self.mode_net = ModeExtractor2(r, hidden_dim, num_frequencies=mode_frequency)
+        if phi_frequency is None or type(phi_frequency) is not int:
+            self.phi_net = PhiEncoder(r, hidden_dim)
+        else:
+            self.phi_net = PhiEncoder2(r, hidden_dim, num_frequencies=phi_frequency)
         self.process_noise = process_noise
         self.cov_eps = cov_eps
         # self.ode_dt = dt *0.1
@@ -367,18 +375,6 @@ class Stochastic_NODE_DMD(nn.Module):
         else:
             var_u = torch.clamp(torch.diagonal(cov_u), min=model.cov_eps).view(m, 2)
             logvar_u = torch.log(var_u)
-        # var_phi = torch.diagonal(cov_phi_next, dim1=-2, dim2=-1)
-        # var_u = torch.einsum('...ik,...k->...i', M*M, var_phi)
-        # cov_u = var_u
-        # if coords.dim() == 3:
-        #     B, m, _ = coords.shape
-        #     var_u = var_u.view(B, m, 2)
-        #     logvar_u = torch.log(var_u.view(B, m, 2))
-        # else:
-        #     m = coords.shape[0]
-        #     var_u = var_u.view(m, 2)
-        #     logvar_u = torch.log(var_u)
-
         return mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lambda_param, W
     
 class ReconstructionDecoder(nn.Module):

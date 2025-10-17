@@ -37,7 +37,7 @@ def run_train(cfg: Config):
     set_seed(cfg.seed)
     device = torch.device(cfg.device)
     t_list, coords_list, y_list, y_full, coords_full = load_synth(
-        cfg.data_path, sample_ratio=cfg.sample_ratio, normalize_t=cfg.normalize_t, device=device
+        cfg.data_path, sample_ratio=cfg.sample_ratio, normalize_t=cfg.normalize_t, device=device, data_len=cfg.data_len
     )
     dataset = SynthDataset(t_list, coords_list, y_list)
     dataloader = DataLoader(
@@ -53,7 +53,9 @@ def run_train(cfg: Config):
         ode_steps=cfg.ode_steps,
         process_noise=cfg.process_noise,
         cov_eps=cfg.cov_eps,
-        dt=cfg.dt
+        dt=cfg.dt,
+        mode_frequency=cfg.mode_frequency,
+        phi_frequency=cfg.phi_frequency
     ).to(device)
     # pretrained_path = "results/stochastic/run23"
     # model = _prepare_model(cfg, pretrained_path)

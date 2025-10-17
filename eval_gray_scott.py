@@ -22,7 +22,9 @@ class FeedMode(enum.Enum):
 def _prepare_model(cfg: Gray_Scott_Config, model_name="best_model.pt") -> Stochastic_NODE_DMD:
     device = torch.device(cfg.device)
     model = Stochastic_NODE_DMD(
-        cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps, cfg.dt
+        cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps, cfg.dt,
+        mode_frequency=cfg.mode_frequency,
+        phi_frequency=cfg.phi_frequency
     ).to(device)
     ckpt = torch.load(os.path.join(cfg.save_dir, model_name), map_location=device)
     model.load_state_dict(ckpt["model_state_dict"])
@@ -35,7 +37,7 @@ def _prepare_model(cfg: Gray_Scott_Config, model_name="best_model.pt") -> Stocha
 
 def _prepare_data(cfg: Gray_Scott_Config):
     device = torch.device(cfg.device)
-    return load_synth(device, T=cfg.eval_data_len, norm_T=cfg.data_len, resolution=cfg.resolution, sample_ratio=cfg.sample_ratio, sigma=cfg.sigma, dt=cfg.dt, seed=cfg.seed, normalize_t=cfg.normalize_t)
+    return load_synth(device, T=cfg.eval_data_len, norm_T=cfg.data_len, resolution=cfg.resolution, sample_ratio=cfg.sample_ratio, sigma=cfg.sigma, dt=cfg.dt, seed=cfg.seed, normalize_t=cfg.normalize_t,)
     
 
 def _compute_vmin_vmax(y_true_full_list: List[torch.Tensor]) -> Tuple[float, float]:

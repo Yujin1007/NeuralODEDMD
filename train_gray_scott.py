@@ -22,7 +22,9 @@ def _prepare_model(cfg: Gray_Scott_Config, pretrained_path: str, model_name="bes
     
     device = torch.device(cfg.device)
     model = Stochastic_NODE_DMD(
-        cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps
+        cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps, dt=cfg.dt,
+        mode_frequency=cfg.mode_frequency,
+        phi_frequency=cfg.phi_frequency
     ).to(device)
     ckpt = torch.load(os.path.join(pretrained_path, model_name), map_location=device)
     model.load_state_dict(ckpt["model_state_dict"])
@@ -51,7 +53,9 @@ def run_train(cfg: Gray_Scott_Config):
         ode_steps=cfg.ode_steps,
         process_noise=cfg.process_noise,
         cov_eps=cfg.cov_eps,
-        dt=cfg.dt
+        dt=cfg.dt,
+        mode_frequency=cfg.mode_frequency,
+        phi_frequency=cfg.phi_frequency
     ).to(device)
     # pretrained_path = "results/stochastic/run23"
     # model = _prepare_model(cfg, pretrained_path)

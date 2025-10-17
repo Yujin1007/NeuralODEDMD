@@ -37,15 +37,15 @@ def load_synth(
     normalize_t: bool = False,
     device: torch.device = torch.device("cpu"),
     seed: int = 0,
+    data_len: int = None
 ):
     np.random.seed(seed)
     ds = xr.open_dataset(nc_path)
-
+    
     vort = ds["vorticity"].transpose("time", "x", "y").values  # (T, n, n)
     tvals = ds["time"].values
     xvals = ds["x"].values
     yvals = ds["y"].values
-
     coords_full = make_coords_full_from_linspace(xvals, yvals)
     n = coords_full.shape[0]
     m = int(n * sample_ratio)
@@ -68,8 +68,8 @@ def load_synth(
     coords_full_torch = torch.from_numpy(coords_full).float().to(device)
     y_torch = to_torch_split_real_only(y_list, device)
     y_full_torch = to_torch_split_real_only(y_list_full, device)
-
-    return t_list, coords_torch, y_torch, y_full_torch, coords_full_torch
+    # return t_list[60:75], coords_torch[60:75], y_torch[60:75], y_full_torch[60:75], coords_full_torch
+    return t_list[:data_len], coords_torch[:data_len], y_torch[:data_len], y_full_torch[:data_len], coords_full_torch
 
 # -------------------------------------------------------
 # 4️⃣ Dataset Class

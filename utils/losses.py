@@ -11,6 +11,10 @@ def stochastic_loss_fn(mu_u, logvar_u, y_next, mu_phi, logvar_phi, mu_phi_hat, l
               recon_weight: float, l1_weight: float, mode_sparsity_weight: float, kl_phi_weight: float, cons_weight: float):
     var_u = torch.exp(logvar_u)
     recon = _nll(mu_u, y_next, var_u)
+    # --- FIXED VARIANCE EXPERIMENT ---
+    # fixed_var = torch.full_like(logvar_u.detach()*0, 0.01) 
+    # recon = _nll(mu_u, y_next, fixed_var)
+    
     kl_phi = -0.5 * torch.sum(1 + logvar_phi - mu_phi.pow(2) - logvar_phi.exp())
     l1_lambda = l1_weight * torch.mean(torch.abs(lambda_param))
     mode_mags = torch.sqrt(W[..., 0].pow(2) + W[..., 1].pow(2))  # (m,r)

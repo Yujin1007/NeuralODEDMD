@@ -22,7 +22,7 @@ class FeedMode(enum.Enum):
 def _prepare_model(cfg: Config, model_name="best_model.pt") -> Stochastic_NODE_DMD:
     device = torch.device(cfg.device)
     model = Stochastic_NODE_DMD(
-        cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps, cfg.dt
+        cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps, cfg.dt, mode_frequency=cfg.mode_frequency, phi_frequency=cfg.phi_frequency
     ).to(device)
     ckpt = torch.load(os.path.join(cfg.save_dir, model_name), map_location=device)
     model.load_state_dict(ckpt["model_state_dict"])
