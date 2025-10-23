@@ -102,3 +102,33 @@ class Navier_Stokes_Config:
     # data_path: str = "/share/portal/yk826/physics_dataset/torch-cfd/dataset/navier_stokes_obstacle_flow/obstacle_flow.nc"
     data_path: str = "/share/portal/yk826/physics_dataset/torch-cfd/dataset/navier_stokes_flow/spectral_vorticity.nc"
     # data_path: str = "/share/portal/yk826/physics_dataset/torch-cfd/dataset/navier_stokes_flow/raw_dataset_slow.nc"
+@dataclass
+class Navier_Stokes_Stochastic_Config:
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    r: int = 8
+    hidden_dim: int = 128
+    num_epochs: int =30_00
+    batch_size: int = 1
+    lr: float = 5e-4
+    l1_weight: float =0#1e-3 
+    mode_sparsity_weight: float =0# 1e-3
+    kl_phi_weight: float =1e-3
+    cons_weight: float = 0.15
+    recon_weight: float = 3.
+    save_dir: str = "results/navier_stokes_stochastic/run1"
+    print_every: int = 500
+    ode_steps: int = 5
+    process_noise: float = 1e-5
+    cov_eps: float = 1e-6
+    seed: int = 42
+    sample_ratio: float = 1
+    sigma: float = 0.001
+    data_len: int = 20
+    eval_data_len: int = 20
+    mode_frequency: int = 2
+    phi_frequency: int = 2
+    dt: float = 0.1  # dt for data generation 
+    train_mode: str = "teacher_forcing"  # "teacher_forcing" or "autoreg" or "evolve"
+    normalize_t: bool = False
+    data_path: str = "/home/yk826/projects/torch-cfd/dataset/navier_stokes_flow/multiple_traj/dataset_merged.nc"
+    
