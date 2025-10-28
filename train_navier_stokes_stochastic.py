@@ -93,7 +93,6 @@ def run_train(cfg: Config):
             teacher_prob = min(1, 1 - (2*epoch / cfg.num_epochs)) # min(1, 1.4 - (epoch * 1.5 / cfg.num_epochs)) #run17
         for batch in dataloader:
             t_prev, t_next, coords, y_next, y_prev = [x.to(device) for x in batch]
-            print(f"t_prev : {t_prev}, t_next:{t_next}")
             opt.zero_grad()
             
             if random.random() < teacher_prob:
@@ -117,10 +116,9 @@ def run_train(cfg: Config):
                 kl_phi_weight=cfg.kl_phi_weight,
                 cons_weight= cfg.cons_weight * min((epoch / cfg.num_epochs), 1) 
             )
-            print(parts)
-            # loss.backward()
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-            # opt.step()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+            opt.step()
             
             total_loss += loss.item()
             num_batches += 1

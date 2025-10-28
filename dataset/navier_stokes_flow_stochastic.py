@@ -37,7 +37,7 @@ def load_synth(
 ):
     np.random.seed(seed)
     ds = xr.open_dataset(nc_path)
-    print(ds.keys())
+    # print(ds.keys())
     vort = ds["vorticity"].transpose("realization", "time", "x", "y").values  # (R, T, n, n)
     n_realizations, T, nx, ny = vort.shape
     tvals = ds["time"].values
@@ -70,7 +70,7 @@ def load_synth(
     coords_full_torch = torch.from_numpy(coords_full).float().to(device)
     y_torch = to_torch_split_real_only(y_list, device)
     y_full_torch = to_torch_split_real_only(y_list_full, device)
-
+    
     return t_list, coords_torch, y_torch, y_full_torch, coords_full_torch, n_realizations, T
 # -------------------------------------------------------
 # 4️⃣ Dataset Class

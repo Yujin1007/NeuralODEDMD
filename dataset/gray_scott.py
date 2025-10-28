@@ -138,7 +138,7 @@ def load_synth(device: torch.device, T, norm_T, resolution,sample_ratio, sigma, 
         coords_full
     ) = synth_sequence(T=T, norm_T=norm_T, resolution=resolution, sample_ratio=sample_ratio, sigma=sigma, dt=dt, seed=seed, normalize_t=normalize_t)
         
-
+    
     def to_torch_split(lst: List[np.ndarray]):
         yr = [torch.from_numpy(np.real(y)).float().to(device) for y in lst]
         yi = [torch.from_numpy(np.imag(y)).float().to(device) for y in lst]

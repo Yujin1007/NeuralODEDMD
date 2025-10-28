@@ -1,6 +1,10 @@
 import os
 import torch
-
+import math
+import torch.fft as fft
+import numpy as np
+import xarray as xr
+from torch.fft import rfft2, irfft2
 
 def ensure_dir(path: str):
     os.makedirs(path, exist_ok=True)
@@ -16,8 +20,6 @@ def complex_block_matrix(W: torch.Tensor) -> torch.Tensor:
     M[1::2, 0:r] = Wi
     M[1::2, r:2 * r] = Wr
     return M
-
-import torch
 
 def reparameterize_full(mu_u: torch.Tensor,
                         cov_u: torch.Tensor,
@@ -118,3 +120,107 @@ def find_subset_indices(coords_full, coords_subset):
     mp = {(float(x), float(y)): i for i, (x, y) in enumerate(cf)}
     idx = [mp[(float(x), float(y))] for (x, y) in cs]
     return torch.as_tensor(idx, device=coords_full.device, dtype=torch.long)
+
+
+
+def vorticity_to_velocity(pred_vorticity, rfftmesh):
+    """
+    pred_vorticity: (batch, nx, ny//2+1) in Fourier or real space
+    rfftmesh: (kx, ky)
+    """
+    # Fourier transform if not already
+    if isinstance(pred_vorticity, np.ndarray):
+        pred_vorticity = torch.from_numpy(pred_vorticity)
+
+    if torch.is_complex(pred_vorticity) == False:
+        w_h = fft.rfft2(pred_vorticity)
+    else:
+        w_h = pred_vorticity
+
+    kx, ky = rfftmesh
+    lap = kx**2 + ky**2
+    lap[..., 0, 0] = 1.0
+
+    psi_h = -w_h / (4 * math.pi**2 * lap)
+    u_hat = 2j * math.pi * ky * psi_h
+    v_hat = -2j * math.pi * kx * psi_h
+
+    u = fft.irfft2(u_hat).real
+    v = fft.irfft2(v_hat).real
+    return u, v
+
+
+def make_rfftmesh(n=64, diam=1.0, device="cpu", dtype=torch.float64):
+    """
+    Create Fourier mesh for 2D rfft2 grid.
+    diam: domain size (usually 1.0 or 2π)
+    returns (kx, ky) of shape (n, n//2 + 1)
+    """
+    kx = torch.fft.fftfreq(n, d=diam/n, device=device, dtype=dtype)  # (n,)
+    ky = torch.fft.fftfreq(n, d=diam/n, device=device, dtype=dtype)  # (n,)
+    kx, ky = torch.meshgrid(kx, ky, indexing="ij")
+
+    # truncate for rfft (positive frequencies in y)
+    kx = kx[:, : n//2 + 1]
+    ky = ky[:, : n//2 + 1]
+    return kx, ky
+
+
+
+def reconstruct_uv_from_normalized_vorticity(vorticity_norm, fmin=-4, fmax=4.5, device="cuda:0"):
+    """
+    Given a cropped & normalized vorticity dataset (ds),
+    reconstruct physical u,v fields (unnormalized) using Poisson inversion in Fourier space.
+    
+    Args:
+        ds (xarray.Dataset): normalized dataset containing 'vorticity' (time, x, y)
+        fmin, fmax (float): normalization bounds used during training
+        device (str): 'cuda:0' or 'cpu'
+    Returns:
+        xr.Dataset: reconstructed u,v fields (same shape as ds)
+    """
+    # vorticity_norm = torch.tensor(ds["vorticity"].values, dtype=torch.float64, device=device)  # (T, nx, ny)
+
+    # 1️⃣ Unnormalize vorticity
+        # ✅ ensure tensor type
+    if isinstance(vorticity_norm, np.ndarray):
+        vorticity_norm = torch.tensor(vorticity_norm, dtype=torch.float64, device=device)
+    elif not torch.is_tensor(vorticity_norm):
+        raise TypeError(f"Unsupported type for vorticity: {type(vorticity_norm)}")
+    vorticity = 0.5 * (vorticity_norm + 1) * (fmax - fmin) + fmin  # (T, nx, ny)
+    
+    # 2️⃣ FFT meshes
+    nx, ny = vorticity.shape[1:]
+    dx = dy = 2 * np.pi / nx  # domain scaling, consistent with original sim
+    kx = torch.fft.fftfreq(nx, d=dx).to(device) * 2 * np.pi
+    ky = torch.fft.rfftfreq(ny, d=dy).to(device) * 2 * np.pi
+    kx, ky = torch.meshgrid(kx, ky, indexing='ij')
+    k2 = kx**2 + ky**2
+    k2[0, 0] = 1e-9  # avoid division by zero
+    
+    # 3️⃣ Spectral transform
+    vort_hat = torch.fft.rfft2(torch.tensor(vorticity, dtype=torch.float64, device=device), dim=(-2, -1))  # (T, nx, ny//2+1)
+    
+    # 4️⃣ Compute streamfunction in Fourier space
+    psi_hat = vort_hat / k2[None, :, :]
+    
+    # 5️⃣ Compute velocity components (u_hat, v_hat)
+    u_hat = 1j * ky[None, :, :] * psi_hat
+    v_hat = -1j * kx[None, :, :] * psi_hat
+    
+    # 6️⃣ Inverse FFT to get real velocity fields
+    u = torch.fft.irfft2(u_hat, s=(nx, ny)).real
+    v = torch.fft.irfft2(v_hat, s=(nx, ny)).real
+    
+    # # 7️⃣ Build xarray dataset
+    # coords = dict(time=ds.time.values, x=ds.x.values, y=ds.y.values)
+    # ds_reconstructed = xr.Dataset(
+    #     data_vars=dict(
+    #         u=(("time", "x", "y"), u.cpu().numpy()),
+    #         v=(("time", "x", "y"), v.cpu().numpy()),
+    #         vorticity=(("time", "x", "y"), vorticity.cpu().numpy()),
+    #     ),
+    #     coords=coords
+    # )
+    # return ds_reconstructed
+    return u, v

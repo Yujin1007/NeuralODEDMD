@@ -54,7 +54,7 @@ class Gray_Scott_Config:
     kl_phi_weight: float =1e-3
     cons_weight: float = 0.15
     recon_weight: float = 3.
-    save_dir: str = "results/gray_scott/sp10"
+    save_dir: str = "results/gray_scott/test"
     print_every: int = 500
     ode_steps: int = 5
     process_noise: float = 1e-5
@@ -115,7 +115,7 @@ class Navier_Stokes_Stochastic_Config:
     kl_phi_weight: float =1e-3
     cons_weight: float = 0.15
     recon_weight: float = 3.
-    save_dir: str = "results/navier_stokes_stochastic/run1"
+    save_dir: str = "results/navier_stokes_stochastic/run3"
     print_every: int = 500
     ode_steps: int = 5
     process_noise: float = 1e-5
@@ -128,7 +128,7 @@ class Navier_Stokes_Stochastic_Config:
     mode_frequency: int = 2
     phi_frequency: int = 2
     dt: float = 0.1  # dt for data generation 
-    train_mode: str = "teacher_forcing"  # "teacher_forcing" or "autoreg" or "evolve"
+    train_mode: str = "evolve"  # "teacher_forcing" or "autoreg" or "evolve"
     normalize_t: bool = False
-    data_path: str = "/home/yk826/projects/torch-cfd/dataset/navier_stokes_flow/multiple_traj/dataset_merged.nc"
+    data_path: str = "/home/yk826/projects/torch-cfd/dataset/navier_stokes_flow/multiple_traj2/dataset_merged.nc"
     

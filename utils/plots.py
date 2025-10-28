@@ -15,6 +15,7 @@ def plot_loss(avg_loss_list, out_dir, filename="loss.png"):
     plt.close()
 
 def plot_reconstruction(coords, t, y_true, u_pred, mse, out_dir, vmin, vmax):
+
     plt.figure(figsize=(12, 5))
     plt.subplot(1, 2, 1)
     plt.scatter(coords[:, 0].cpu().numpy(), coords[:, 1].cpu().numpy(), c=y_true[:, 0].cpu().numpy(), cmap='viridis', vmin=vmin, vmax=vmax)
