@@ -211,3 +211,6 @@ __marimo__/
 *.tar.gz
 *.zip
 *.pt
+
+autoreg_reconstruction/
+teacher_forcing_reconstruction/
