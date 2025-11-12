@@ -5,37 +5,13 @@ import torch.nn.functional as F
 from utils.utils import complex_block_matrix, reparameterize
 from utils.ode import ode_euler_uncertainty_batch  
 from utils.ode import ode_euler_uncertainty
-# ---------------------------
-# 유틸: 배치/비배치 통일 헬퍼
-# ---------------------------
-
-def _ensure_batch(x, batch_dim=0):
-    """입력이 비배치라면 batch 차원(=0)을 추가하고, 배치 여부(bool)도 함께 반환."""
-    if x is None:
-        return None, False
-    if isinstance(x, (float, int)):
-        x = torch.tensor([x], dtype=torch.float32)
-    if not torch.is_tensor(x):
-        x = torch.as_tensor(x)
-    if x.dim() == 0:
-        x = x[None]  # (1,)
-        return x, False
-    # 좌표/필드 텐서들: 보통 (m,2) 또는 (B,m,2)
-    # 시각 텐서들: 보통 ()/(B,) 지원 → 여기서는 (B,) 로 통일
-    return (x if x.size(0) > 1 or x.dim() >= 2 else x), (x.dim() >= 2 and x.size(0) > 1)
-
-def _is_batched_coords(coords):
-    # coords: (m,2) or (B,m,2)
-    return coords.dim() == 3
 import math
-
 class PositionalEncoding(nn.Module):
     def __init__(self, num_frequencies=8, include_input=True):
         super().__init__()
         self.num_frequencies = num_frequencies
         self.include_input = include_input
         self.freq_bands = 2 ** torch.linspace(0, num_frequencies - 1, num_frequencies) * math.pi
-        # self.freq_bands = torch.linspace(1, num_frequencies, num_frequencies) * math.pi
     def forward(self, coords):
         """
         coords: (m,2) or (B,m,2)
@@ -64,9 +40,10 @@ class PositionalEncoding(nn.Module):
 def stabilize_lambda(raw_lambda, min_decay=1e-3, w_scale=10.0):
     # raw_lambda: (...,2) -> (...,2)
     real_raw, imag_raw = raw_lambda[...,0], raw_lambda[...,1]
-    real = -F.softplus(real_raw) - min_decay     # 항상 음수
-    imag = w_scale * torch.tanh(imag_raw)        # 빈도 상한
+    real = -F.softplus(real_raw) - min_decay     
+    imag = w_scale * torch.tanh(imag_raw)       
     return torch.stack([real, imag], dim=-1)
+
 # ---------------------------
 # Mode extractor
 # ---------------------------
@@ -98,7 +75,7 @@ class ModeExtractor(nn.Module):
             return out                           # (B, m, r, 2)
         else:
             raise ValueError("coords must be (m,2) or (B,m,2)")
-class ModeExtractor2(nn.Module):
+class ModeExtractor_PE(nn.Module):
     def __init__(self, r: int, hidden_dim: int, num_frequencies: int = 4):
         super().__init__()
         self.r = r
@@ -180,7 +157,7 @@ class PhiEncoder(nn.Module):
         else:
             raise ValueError("coords/y must be (m,2) or (B,m,2)")
 
-class PhiEncoder2(nn.Module):
+class PhiEncoder_PE(nn.Module):
     def __init__(self, r: int, hidden_dim: int, num_frequencies: int = 3):
         super().__init__()
         self.r = r
@@ -229,19 +206,7 @@ class PhiEncoder2(nn.Module):
             return mu, logvar, lambda_param
         else:
             raise ValueError("coords/y must be (m,2) or (B,m,2)")
-
-class ODE():
-    def __call__(self, *input, **kwargs):
-        return self.forward(*input, **kwargs)
-
-    def forward(self, phi, lambda_param, t):
-
-        lam_complex = lambda_param[..., 0] + 1j * lambda_param[..., 1]  # (B,r)
-        phi_complex = phi[..., 0] + 1j * phi[..., 1]  # (B,r)
-        drift_complex = lam_complex * phi_complex  # (B,r)
-        drift = torch.stack([drift_complex.real, drift_complex.imag], dim=-1)  # (B,r,2)
-        return drift
-        
+       
 class ODENet(nn.Module):
     def __init__(self, r: int, hidden_dim: int):
         super().__init__()
@@ -315,11 +280,6 @@ class ODENet(nn.Module):
         else:
             raise ValueError("phi must be (r,2) or (B,r,2)")
 
-
-
-# ---------------------------
-# 메인 모듈
-# ---------------------------
 class Stochastic_NODE_DMD(nn.Module):
     def __init__(self, r: int, hidden_dim: int, ode_steps: int, process_noise: float, cov_eps: float, dt: float, mode_frequency=None, phi_frequency=None):
         super().__init__()
@@ -329,14 +289,13 @@ class Stochastic_NODE_DMD(nn.Module):
         if mode_frequency is None or type(mode_frequency) is not int:
             self.mode_net = ModeExtractor(r, hidden_dim)
         else:
-            self.mode_net = ModeExtractor2(r, hidden_dim, num_frequencies=mode_frequency)
+            self.mode_net = ModeExtractor_PE(r, hidden_dim, num_frequencies=mode_frequency)
         if phi_frequency is None or type(phi_frequency) is not int:
             self.phi_net = PhiEncoder(r, hidden_dim)
         else:
-            self.phi_net = PhiEncoder2(r, hidden_dim, num_frequencies=phi_frequency)
+            self.phi_net = PhiEncoder_PE(r, hidden_dim, num_frequencies=phi_frequency)
         self.process_noise = process_noise
         self.cov_eps = cov_eps
-        # self.ode_dt = dt *0.1
         self.ode_dt = dt / ode_steps
 
     def _complex_block_matrix_batched(self, W):
@@ -391,38 +350,4 @@ class Stochastic_NODE_DMD(nn.Module):
         return mu_u, logvar_u, cov_u, mu_phi_next, logvar_phi_next, lambda_param, W
     
 
-class ReconstructionDecoder(nn.Module):
-    def __init__(self, r: int, hidden_dim: int):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(2 + r*2, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 2)
-        )
-
-    def forward(self, coords, phi):
-        # normalize to batched
-        unbatched = coords.dim() == 2  # coords: (m,2), phi: (r,2)
-        if unbatched:
-            coords = coords.unsqueeze(0)    # (1,m,2)
-            phi    = phi.unsqueeze(0)       # (1,r,2)
-
-        B, m, _ = coords.shape
-        # (B, r*2)
-        phi_flat = phi.reshape(B, -1)
-        # broadcast without allocation (view): (B, m, r*2)
-        phi_exp = phi_flat.unsqueeze(1).expand(B, m, phi_flat.size(-1))
-        # concat -> (B, m, 2 + r*2)
-        x = torch.cat([coords, phi_exp], dim=-1)
-        out = self.net(x)  # (B, m, 2)
-
-        return out.squeeze(0) if unbatched else out
-
-import time
-def _tick():
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-    return time.time()
 

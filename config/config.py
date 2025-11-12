@@ -9,12 +9,10 @@ class Synthetic_Dataset_Config:
     num_epochs: int =15_00
     batch_size: int = 1
     lr: float = 5e-4
-    l1_weight: float =0
-    mode_sparsity_weight: float =0
     kl_phi_weight: float =1e-3
     cons_weight: float = 0.15
     recon_weight: float = 3.
-    save_dir: str = "results/stochastic/test_run"
+    save_dir: str = "results/synthetic/test_run"
     print_every: int = 500
     ode_steps: int = 5
     process_noise: float = 1e-5
@@ -33,19 +31,6 @@ class Synthetic_Dataset_Config:
 
 
 @dataclass
-class Deterministic_Node_DMD_Config:
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    r: int = 4
-    hidden_dim: int = 64
-    num_epochs: int = 100_00
-    lr: float = 5e-4
-    l1_weight: float = 1e-3
-    save_dir: str = "results/deterministic/run2"
-    print_every: int = 100
-    ode_steps: int = 10
-    seed: int = 42
-
-@dataclass
 class Gray_Scott_Config:
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     r: int = 8
@@ -53,8 +38,6 @@ class Gray_Scott_Config:
     num_epochs: int =15_00
     batch_size: int = 1
     lr: float = 5e-4
-    l1_weight: float =0
-    mode_sparsity_weight: float =0
     kl_phi_weight: float =1e-3
     cons_weight: float = 0.15
     recon_weight: float = 3.
@@ -83,12 +66,10 @@ class Navier_Stokes_Config:
     num_epochs: int =15_00
     batch_size: int = 1
     lr: float = 5e-4
-    l1_weight: float =0#1e-3 
-    mode_sparsity_weight: float =0# 1e-3
     kl_phi_weight: float =1e-3
     cons_weight: float = 0.15
     recon_weight: float = 3.
-    save_dir: str = "results/navier_stokes/test_run"
+    save_dir: str = "results/vorticity/test_run"
     print_every: int = 500
     ode_steps: int = 5
     process_noise: float = 1e-5
@@ -103,7 +84,7 @@ class Navier_Stokes_Config:
     normalize_t: bool = False    
     data_len: int = 50
     eval_data_len: int = 99
-    data_path: str = "/share/portal/yk826/physics_dataset/torch-cfd/dataset/navier_stokes_flow/spectral_vorticity.nc"
+    data_path: str = "dataset/navier_stokes_flow_dataset/vorticity.nc"
 
 @dataclass
 class Navier_Stokes_Cylinder_Config:
@@ -113,12 +94,10 @@ class Navier_Stokes_Cylinder_Config:
     num_epochs: int =15_00
     batch_size: int = 1
     lr: float = 5e-4
-    l1_weight: float =0#1e-3 
-    mode_sparsity_weight: float =0# 1e-3
     kl_phi_weight: float =1e-3
     cons_weight: float = 0.15
     recon_weight: float = 3.
-    save_dir: str = "results/navier_stokes_cylinder/test_run"
+    save_dir: str = "results/cylinder/test_run"
     print_every: int = 500
     ode_steps: int = 5
     process_noise: float = 1e-5
@@ -134,37 +113,4 @@ class Navier_Stokes_Cylinder_Config:
  
     data_len: int = 150 
     eval_data_len: int = 199
-    data_path: str = "/share/portal/yk826/physics_dataset/torch-cfd/dataset/navier_stokes_obstacle_flow/obstacle_flow.nc"
-     
-@dataclass
-class Navier_Stokes_Stochastic_Config:
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    r: int = 8
-    hidden_dim: int = 128
-    num_epochs: int =15_00
-    batch_size: int = 1
-    lr: float = 5e-4
-    l1_weight: float =0
-    mode_sparsity_weight: float =0
-    kl_phi_weight: float =1e-3
-    cons_weight: float =0# 0.15
-    recon_weight: float = 3.
-    save_dir: str = "results/navier_stokes_stochastic/test_run"
-    print_every: int = 500
-    ode_steps: int = 5
-    process_noise: float = 1e-5
-    cov_eps: float = 1e-6
-    seed: int = 0
-    sample_ratio: float = 1
-    sigma: float = 0.001
-    data_len: int = 20
-    eval_data_len: int = 20
-    mode_frequency: int = 2
-    phi_frequency: int = 2
-    dt: float = 0.1  # dt for data generation 
-    train_mode: str = "evolve"  # "teacher_forcing" or "autoreg" or "evolve"
-    normalize_t: bool = False
-    # data_path: str = "/home/yk826/projects/torch-cfd/dataset/navier_stokes_flow/multiple_traj2/dataset_0.nc"
-    data_path: str = "/home/yk826/projects/torch-cfd/dataset/navier_stokes_flow/multiple_traj2/dataset_merged.nc"
-    # data_path: str = "/home/yk826/projects/torch-cfd/dataset/navier_stokes_flow/multiple_traj_small/huge_dynamics_noise/dataset_merged.nc"
-    
+    data_path: str = "dataset/navier_stokes_flow_dataset/cylinder.nc"

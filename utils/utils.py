@@ -10,6 +10,7 @@ from typing import List, Tuple
 import enum
 import json
 import random
+import ast
 def set_seed(seed: int):
     random.seed(seed)
     np.random.seed(seed)
@@ -26,6 +27,41 @@ def prepare_data(cfg):
     device = torch.device(cfg.device)
     # returns: t_list, coords_list, y_list, y_true_list, y_true_full_list, coords_full, gt_params, W_full
     return load_synth(device, T=cfg.data_len, norm_T=cfg.data_len, resolution=cfg.resolution, dt=cfg.dt)
+def load_config_from_file(config_path: str, Config):
+    """Load config from text file."""
+    config_dict = {}
+    with open(config_path, "r") as f:
+        for line in f:
+            if ":" in line:
+                k, v = line.strip().split(":", 1)
+                k = k.strip()
+                v = v.strip()
+                # Try to parse tuple/list, int, float, bool, or leave as string
+                if v.lower() == "true":
+                    v = True
+                elif v.lower() == "false":
+                    v = False
+                else:
+                    try:
+                        # Try tuple/list parsing
+                        if ("," in v) or (v.startswith("(") and v.endswith(")")):
+                            v = ast.literal_eval(v)
+                        else:
+                            v = int(v)
+                    except (ValueError, SyntaxError):
+                        try:
+                            v = float(v)
+                        except ValueError:
+                            pass
+                config_dict[k] = v
+
+    # Create config object
+    cfg = Config()
+    for k, v in config_dict.items():
+        if hasattr(cfg, k):
+            setattr(cfg, k, v)
+    return cfg
+
 
 def summarize_and_dump(calib_all: List[dict], mse_full_all: List[float], out_dir: str, mode: FeedMode):
     def _avg(key): 
