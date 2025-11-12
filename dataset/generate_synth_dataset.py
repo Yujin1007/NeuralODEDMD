@@ -62,13 +62,10 @@ def synth_sequence(T, norm_T, resolution, dt, sample_ratio=0.1, sigma=0.1, seed=
     else:
         t_list = [np.float32(t) * np.float32(dt) for t in t_list]
     # print(f"t_list dtype: {type(t_list[0])}, coords dtype: {coords_list[0].dtype}, y dtype: {y_list[0].dtype}")
-    return t_list, coords_list, y_list, y_true_list, y_true_full_list, coords_full, (alpha, omega, b), W_full
+    return t_list, coords_list, y_list, y_true_full_list, coords_full, y_true_list,(alpha, omega, b), W_full
 
 
 
-# for NDMD execution, comment out below 
-def load_synth(device: torch.device, T, norm_T, resolution,sample_ratio, sigma, dt, seed, normalize_t):
-    pass
 def load_synth(device: torch.device, T, norm_T, resolution,sample_ratio, sigma, dt, seed, normalize_t):
     """Loads synthetic sequence and converts to torch (real/imag split).
     Returns:
@@ -82,9 +79,9 @@ def load_synth(device: torch.device, T, norm_T, resolution,sample_ratio, sigma, 
         t_list,
         coords_list,
         y_list,
-        y_true_list,
         y_true_full_list,
         coords_full,
+        y_true_list,
         gt_params,
         W_full,
     ) = synth_sequence(T=T, norm_T=norm_T, resolution=resolution, sample_ratio=sample_ratio, sigma=sigma, dt=dt, seed=seed, normalize_t=normalize_t)
@@ -104,9 +101,9 @@ def load_synth(device: torch.device, T, norm_T, resolution,sample_ratio, sigma, 
         t_list,
         coords_torch,
         y_torch,
-        y_true_torch,
         y_true_full_torch,
         coords_full_torch,
+        y_true_torch,
         gt_params,
         W_full,
     )
