@@ -6,31 +6,11 @@ from config.config import Navier_Stokes_Config as Config
 from dataset.navier_stokes_flow import load_synth, SynthDataset
 from models.node_dmd import Stochastic_NODE_DMD
 from utils.losses import stochastic_loss_fn
-from utils.utils import ensure_dir, reparameterize_full
+from utils.utils import set_seed, ensure_dir, reparameterize_full
 import random
 import numpy as np
 from torch.utils.data import DataLoader
 from utils.plots import plot_loss
-
-def set_seed(seed: int):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-def _prepare_model(cfg: Config, pretrained_path: str, model_name="best_model.pt") -> Stochastic_NODE_DMD:
-    
-    device = torch.device(cfg.device)
-    model = Stochastic_NODE_DMD(
-        cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps
-    ).to(device)
-    ckpt = torch.load(os.path.join(pretrained_path, model_name), map_location=device)
-    model.load_state_dict(ckpt["model_state_dict"])
-    model.eval()
-    loss = ckpt["best_loss"]
-    epoch = ckpt["epoch"]
-    print(f"best loss of {loss} saved at epoch {epoch}")
-    return model
 
 
 def run_train(cfg: Config):
@@ -110,14 +90,14 @@ def run_train(cfg: Config):
                 u_pred = reparameterize_full(mu_u.detach(), cov_u.detach())
                 with torch.no_grad():  # Or enable_grad if backprop through it
                     mu_phi_hat, logvar_phi_hat, _ = model.phi_net(coords, u_pred)
-            
             loss, parts = stochastic_loss_fn(
                 mu_u, logvar_u, y_next, mu_phi, logvar_phi, mu_phi_hat, logvar_phi_hat, lam, W,
                 recon_weight=cfg.recon_weight,
                 l1_weight=cfg.l1_weight, 
                 mode_sparsity_weight=cfg.mode_sparsity_weight,
                 kl_phi_weight=cfg.kl_phi_weight,
-                cons_weight= cfg.cons_weight * min((epoch / cfg.num_epochs), 1) 
+                # cons_weight= cfg.cons_weight * min((epoch / cfg.num_epochs), 1) 
+                cons_weight= cfg.cons_weight
             )
 
             loss.backward()

@@ -196,9 +196,15 @@ class PhiEncoder2(nn.Module):
         self.phi_mu = nn.Linear(hidden_dim, r * 2)
         self.phi_logvar = nn.Linear(hidden_dim, r * 2)
         self.lambda_out = nn.Linear(hidden_dim, r * 2)
-
+        self.pre_input = None
     def forward(self, coords, y):
         coords_emb = self.posenc(coords)
+        if self.pre_input is not None:
+            distance = torch.norm(y - self.pre_input, dim=-1)
+            self.pre_input = y
+        else:
+            distance = torch.zeros(y.shape[0])
+            self.pre_input = y
         if coords_emb.dim() == 2:
             x = torch.cat([coords_emb, y], dim=-1)
             h = self.embed(x)
@@ -208,6 +214,7 @@ class PhiEncoder2(nn.Module):
             logvar = self.phi_logvar(pooled).view(self.r, 2)
             lambda_param = self.lambda_out(pooled).view(self.r, 2)
             lambda_param = stabilize_lambda(lambda_param)
+            # print(f"input change: {distance.mean()}, latent : {h.flatten()}, pooled: {pooled.flatten()}")
             return mu, logvar, lambda_param
         elif coords_emb.dim() == 3:
             B, m, _ = coords_emb.shape
@@ -247,7 +254,7 @@ class ODENet(nn.Module):
             nn.Linear(hidden_dim, r * 2),
             # nn.Tanh(), # for small correction
         )
-    
+        # self.output_scale = 5.0  # <-- add this
     def forward(self, phi, lambda_param, t):
         """
         phi:           (r,2) or (B,r,2)
@@ -259,7 +266,6 @@ class ODENet(nn.Module):
         phi_complex = phi[..., 0] + 1j * phi[..., 1]  # (B,r)
         drift_complex = lam_complex * phi_complex  # (B,r)
         drift = torch.stack([drift_complex.real, drift_complex.imag], dim=-1)  # (B,r,2)
-        # print(f"drift : ", drift.flatten().detach())
         if phi.dim() == 2:
             # 비배치
             r, two = phi.shape
@@ -278,9 +284,9 @@ class ODENet(nn.Module):
             x = torch.cat([phi.reshape(-1), lam.reshape(-1), t_feat], dim=0)  # (4r+1,)
             out = self.net(x)   
             correction = out.view(self.r, 2)
+            # correction = out.view(self.r, 2) * self.output_scale
             dphi = drift + correction  # Residual structure
                                 # (r*2,)
-            # print(f"t: {t:.4f}, lam: {(lambda_param.flatten().detach()**2).sum()**0.5:.4f}, phi: {(phi.flatten().detach()**2).sum()**0.5:.4f}, drift:  {(drift.flatten().detach()**2).sum()**0.5:.4f}, correction: {(correction.flatten().detach()**2).sum()**0.5}, total: {(dphi.flatten().detach()**2).sum()**0.5}")
             return dphi
 
         elif phi.dim() == 3:
@@ -303,6 +309,8 @@ class ODENet(nn.Module):
             x = torch.cat([phi.reshape(B, -1), lam.reshape(B, -1), t_feat], dim=1)  # (B, 4r+1)
             correction = self.net(x.float()).view(B, self.r, 2)
             dphi = drift + correction  # Residual structure
+            # print(f"drift magnitude: {torch.norm(drift, dim=-1).mean()}, correction magnitude: {torch.norm(correction, dim=-1).mean()}")
+            
             return dphi
         else:
             raise ValueError("phi must be (r,2) or (B,r,2)")
@@ -313,7 +321,7 @@ class ODENet(nn.Module):
 # 메인 모듈
 # ---------------------------
 class Stochastic_NODE_DMD(nn.Module):
-    def __init__(self, r: int, hidden_dim: int, ode_steps: int, process_noise: float, cov_eps: float, dt: float, mode_frequency: int, phi_frequency=None):
+    def __init__(self, r: int, hidden_dim: int, ode_steps: int, process_noise: float, cov_eps: float, dt: float, mode_frequency=None, phi_frequency=None):
         super().__init__()
         self.r = r
         self.ode_func = ODENet(r, hidden_dim)
@@ -375,8 +383,14 @@ class Stochastic_NODE_DMD(nn.Module):
         else:
             var_u = torch.clamp(torch.diagonal(cov_u), min=model.cov_eps).view(m, 2)
             logvar_u = torch.log(var_u)
-        return mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lambda_param, W
+        # return mu_u, logvar_u, cov_u, mu_phi, logvar_phi, lambda_param, W #before 1029
+        
+        diag_var = torch.diagonal(cov_phi_next, dim1=-2, dim2=-1).clamp_min(1e-8)
+        logvar_phi_next = torch.log(diag_var)
+        logvar_phi_next = logvar_phi_next.view(logvar_phi.shape)
+        return mu_u, logvar_u, cov_u, mu_phi_next, logvar_phi_next, lambda_param, W
     
+
 class ReconstructionDecoder(nn.Module):
     def __init__(self, r: int, hidden_dim: int):
         super().__init__()

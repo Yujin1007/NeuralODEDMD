@@ -22,7 +22,7 @@ class FeedMode(enum.Enum):
 def _prepare_model(cfg: Stochastic_Node_DMD_Config, model_name="best_model.pt") -> Stochastic_NODE_DMD:
     device = torch.device(cfg.device)
     model = Stochastic_NODE_DMD(
-        cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps, cfg.dt
+        cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps, cfg.dt, cfg.mode_frequency, cfg.phi_frequency
     ).to(device)
     ckpt = torch.load(os.path.join(cfg.save_dir, model_name), map_location=device)
     model.load_state_dict(ckpt["model_state_dict"])
@@ -78,7 +78,7 @@ def _summarize_and_dump(calib_all: List[dict], mse_full_all: List[float], out_di
 
 
 @torch.no_grad()
-def run_eval(cfg: Stochastic_Node_DMD_Config, mode: str = "teacher_forcing"):
+def run_eval(cfg: Stochastic_Node_DMD_Config, mode: str = "teacher_forcing", model_name: str = "best_model.pt"):
     """
     통합 평가 루틴.
     - mode = "teacher_forcing": y_prev(ground-truth at t_{i-1})를 입력으로 사용
@@ -97,7 +97,7 @@ def run_eval(cfg: Stochastic_Node_DMD_Config, mode: str = "teacher_forcing"):
         *_,
     ) = _prepare_data(cfg)
 
-    model = _prepare_model(cfg, "model_1000.pt")
+    model = _prepare_model(cfg, model_name=model_name)
     # import time
     # time.sleep(1e6)
     vmin, vmax = _compute_vmin_vmax(y_true_full_list)
@@ -129,6 +129,7 @@ def run_eval(cfg: Stochastic_Node_DMD_Config, mode: str = "teacher_forcing"):
             y_in = y_pred_chain
 
         mu_u, logvar_u, cov_u, mu_phi, logvar_phi,lam,W = model(coords, y_in, t_prev, t_next)
+
         mu_phi_hat, logvar_phi_hat, _ = model.phi_net(coords, mu_u)
         loss, parts = stochastic_loss_fn(
                 mu_u, logvar_u, y_true, mu_phi, logvar_phi, mu_phi_hat, logvar_phi_hat, lam, W,
@@ -182,6 +183,8 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Evaluate SNode DMD with config from directory.")
     parser.add_argument("--config_dir", type=str, required=True, help="Directory containing Stochastic_Node_DMD_Config.txt")
+    parser.add_argument("--ckpt_name", type=str, default="best_model.pt", help="Directory containing Config.txt")
+    
     args = parser.parse_args()
 
     # Load config from txt file
@@ -219,5 +222,5 @@ if __name__ == "__main__":
         if hasattr(cfg, k):
             setattr(cfg, k, v)
 
-    run_eval(cfg, mode="teacher_forcing")
-    run_eval(cfg, mode="autoreg")
+    run_eval(cfg, mode="teacher_forcing", model_name=args.ckpt_name)
+    run_eval(cfg, mode="autoreg", model_name=args.ckpt_name)

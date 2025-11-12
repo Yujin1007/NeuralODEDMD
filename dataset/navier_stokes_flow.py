@@ -24,13 +24,6 @@ def to_torch_split_real_only(lst, device):
     yi = [torch.zeros_like(r) for r in yr]
     return [torch.stack([r, i], dim=-1) for r, i in zip(yr, yi)]
 
-# -------------------------------------------------------
-# 2️⃣ Simulation + GIF + NetCDF
-# -------------------------------------------------------
-
-# -------------------------------------------------------
-# 3️⃣ Gray–Scott Compatible Loader
-# -------------------------------------------------------
 def load_synth(
     nc_path: str,
     sample_ratio: float = 0.2,

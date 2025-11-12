@@ -79,7 +79,7 @@ def _summarize_and_dump(calib_all: List[dict], mse_full_all: List[float], out_di
 
 
 @torch.no_grad()
-def run_eval(cfg: Config, mode: str = "teacher_forcing"):
+def run_eval(cfg: Config, mode: str = "teacher_forcing", model_name: str = "best_model.pt"):
     """
     통합 평가 루틴.
     - mode = "teacher_forcing": y_prev(ground-truth at t_{i-1})를 입력으로 사용
@@ -98,7 +98,7 @@ def run_eval(cfg: Config, mode: str = "teacher_forcing"):
     ) = _prepare_data(cfg)
     
 
-    model = _prepare_model(cfg)
+    model = _prepare_model(cfg, model_name=model_name)
     # import time
     # time.sleep(1e6)
     vmin, vmax = _compute_vmin_vmax(y_true_full_list)
@@ -120,6 +120,7 @@ def run_eval(cfg: Config, mode: str = "teacher_forcing"):
     # --- 메인 루프
     
     for i in range(1, len(t_list)):
+        # print(f"time step {i}")
         coords = coords_full
         y_true = y_true_full_list[i]
         t_prev = float(t_list[i - 1])
@@ -186,6 +187,8 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Evaluate SNode DMD with config from directory.")
     parser.add_argument("--config_dir", type=str, required=True, help="Directory containing Config.txt")
+    parser.add_argument("--ckpt_name", type=str, default="best_model.pt", help="Directory containing Config.txt")
+    
     args = parser.parse_args()
 
     # Load config from txt file
@@ -223,5 +226,5 @@ if __name__ == "__main__":
         if hasattr(cfg, k):
             setattr(cfg, k, v)
 
-    run_eval(cfg, mode="teacher_forcing")
-    run_eval(cfg, mode="autoreg")
+    run_eval(cfg, mode="teacher_forcing", model_name=args.ckpt_name)
+    run_eval(cfg, mode="autoreg", model_name=args.ckpt_name)

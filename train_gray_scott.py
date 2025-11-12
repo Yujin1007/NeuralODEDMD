@@ -2,40 +2,18 @@ import os
 import torch
 import torch.optim as optim
 from tqdm import trange
-from config.config import Gray_Scott_Config
+from config.config import Gray_Scott_Config as Config
 from dataset.gray_scott import load_synth, SynthDataset
 from models.node_dmd import Stochastic_NODE_DMD
 from utils.losses import stochastic_loss_fn
-from utils.utils import ensure_dir, reparameterize_full
+from utils.utils import set_seed, ensure_dir, reparameterize_full
 import random
 import numpy as np
 from torch.utils.data import DataLoader
 from utils.plots import plot_loss
 
-def set_seed(seed: int):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
 
-def _prepare_model(cfg: Gray_Scott_Config, pretrained_path: str, model_name="best_model.pt") -> Stochastic_NODE_DMD:
-    
-    device = torch.device(cfg.device)
-    model = Stochastic_NODE_DMD(
-        cfg.r, cfg.hidden_dim, cfg.ode_steps, cfg.process_noise, cfg.cov_eps, dt=cfg.dt,
-        mode_frequency=cfg.mode_frequency,
-        phi_frequency=cfg.phi_frequency
-    ).to(device)
-    ckpt = torch.load(os.path.join(pretrained_path, model_name), map_location=device)
-    model.load_state_dict(ckpt["model_state_dict"])
-    model.eval()
-    loss = ckpt["best_loss"]
-    epoch = ckpt["epoch"]
-    print(f"best loss of {loss} saved at epoch {epoch}")
-    return model
-
-
-def run_train(cfg: Gray_Scott_Config):
+def run_train(cfg: Config):
     set_seed(cfg.seed)
     device = torch.device(cfg.device)
     t_list, coords_list, y_list, *_ = load_synth(device, T=cfg.data_len, norm_T=cfg.data_len, resolution=cfg.resolution, sample_ratio=cfg.sample_ratio, sigma=cfg.sigma, dt=cfg.dt, seed=cfg.seed, normalize_t=cfg.normalize_t)
@@ -62,7 +40,7 @@ def run_train(cfg: Gray_Scott_Config):
 
     # Save config to output directory
     ensure_dir(cfg.save_dir)
-    config_path = os.path.join(cfg.save_dir, "Gray_Scott_Config.txt")
+    config_path = os.path.join(cfg.save_dir, "Config.txt")
 
     with open(config_path, "w") as f:
         for k in dir(cfg):
@@ -161,4 +139,4 @@ def run_train(cfg: Gray_Scott_Config):
 
 
 if __name__ == "__main__":
-    run_train(Gray_Scott_Config())
+    run_train(Config())

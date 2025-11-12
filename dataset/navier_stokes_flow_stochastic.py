@@ -37,8 +37,15 @@ def load_synth(
 ):
     np.random.seed(seed)
     ds = xr.open_dataset(nc_path)
-    # print(ds.keys())
-    vort = ds["vorticity"].transpose("realization", "time", "x", "y").values  # (R, T, n, n)
+    print(ds.dims.keys())
+    keys = list(ds.dims.keys())
+    if "realization" in keys:
+        vort = ds["vorticity"].transpose("realization", "time", "x", "y").values  # (R, T, n, n)
+        
+    else:
+        vort = ds["vorticity"].transpose("time", "x", "y").values  # (T, n, n)
+        vort = vort.reshape(1, vort.shape[0], vort.shape[1], vort.shape[2])
+        
     n_realizations, T, nx, ny = vort.shape
     tvals = ds["time"].values
     xvals = ds["x"].values
@@ -70,7 +77,6 @@ def load_synth(
     coords_full_torch = torch.from_numpy(coords_full).float().to(device)
     y_torch = to_torch_split_real_only(y_list, device)
     y_full_torch = to_torch_split_real_only(y_list_full, device)
-    
     return t_list, coords_torch, y_torch, y_full_torch, coords_full_torch, n_realizations, T
 # -------------------------------------------------------
 # 4️⃣ Dataset Class
@@ -112,6 +118,32 @@ class SynthDataset(torch.utils.data.Dataset):
         y_prev = self.y_list[i0]
         y_next = self.y_list[i1]
         return t_prev, t_next, coords, y_next, y_prev
+class SynthDataset_multi_traj(torch.utils.data.Dataset):
+    def __init__(self, t_list, coords_list, y_list, n_realizations=1, steps_per_realization=None, set_realization=3):
+        np.random.seed(0)
+        self.t_list = t_list
+        self.coords_list = coords_list
+        self.y_list = y_list
+        self.n_realizations = n_realizations
+        self.steps_per_realization = steps_per_realization or (len(t_list) // n_realizations)
+        self.set_realization = set_realization
+        # 각 realization 내에서 마지막 step은 제외
+        self.length = (len(t_list) // n_realizations) - 1
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, idx):
+        set_idx = torch.randperm(self.n_realizations)[:self.set_realization]
+
+        t_prev = self.t_list[idx-1]
+        t_next = self.t_list[idx]
+        coords = self.coords_list[idx]
+        
+        y_prev = torch.stack([self.y_list[i*self.steps_per_realization+idx-1] for i in set_idx], dim=0)
+        y_next = torch.stack([self.y_list[i*self.steps_per_realization+idx] for i in set_idx], dim=0) # set_realization x 64*64 x 2   
+        return t_prev, t_next, coords, y_next, y_prev
+
 # -------------------------------------------------------
 # 5️⃣ Example Usage
 # -------------------------------------------------------

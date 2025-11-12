@@ -9,6 +9,9 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import scipy.interpolate as interp
 import matplotlib.cm as cm
+from matplotlib.lines import Line2D
+import numpy as np
+from matplotlib.ticker import FuncFormatter
 # from torch_cfd.grids import Grid
 # from torch_cfd.initial_conditions import filtered_vorticity_field
 # from torch_cfd.spectral import *
@@ -109,65 +112,146 @@ def save_trajectory_plot(traj_segments, out_dir="./dataset/navier_stokes_flow", 
     plt.close()
     print(f"✅ Trajectory plot saved: {os.path.join(out_dir, fname)}")
 
-def save_trajectories_plot(trajectories, out_dir="./dataset/navier_stokes_flow",
-                         fname="trajectory_plot.png", bound=None, pred_label=None):
-    """
-    trajectories: list of list
-        예: [ [traj_0_seg_0, traj_0_seg_1], [traj_1_seg_0], [traj_2_seg_0, traj_2_seg_1, ...] ]
-    bound: [xmin, xmax] 또는 [xmin, xmax, ymin, ymax]
-    """
-    plt.figure(figsize=(7, 7))
-    # colors = cm.get_cmap('tab10', len(trajectories))  # dataset별 고유 색상
-    
-    label_added = set()  # legend 중복 방지
-    # idx = 0  # trajectory index (전체)
-    pred_idx = len(trajectories)
-    if pred_label is not None:
-        pred_idx = len(trajectories) - len(pred_label) 
-    for exp_i, traj_list in enumerate(trajectories):
-        # color = colors(exp_i)
+# def save_trajectories_plot(trajectories, out_dir="./dataset/navier_stokes_flow",
+#                          fname="trajectory_plot.png", bound=None, pred_label=None):
+#     """
+#     trajectories: list of list
+#         예: [ [traj_0_seg_0, traj_0_seg_1], [traj_1_seg_0], [traj_2_seg_0, traj_2_seg_1, ...] ]
+#     bound: [xmin, xmax] 또는 [xmin, xmax, ymin, ymax]
+#     """
+#     plt.figure(figsize=(4, 4))
+#     pred_idx = len(trajectories)
+#     if pred_label is not None:
+#         pred_idx = len(trajectories) - len(pred_label) 
+#     for exp_i, traj_list in enumerate(trajectories):
+#         # color = colors(exp_i)
         
-        label = f"Dataset {exp_i+1}"
+#         label = f"Dataset {exp_i+1}"
+#         for seg in traj_list:
+#             x, y = seg[:, 0], seg[:, 1]
+#             if exp_i < pred_idx:
+#                 plt.plot(x, y, '-', color='gray', lw=1.5, alpha=0.8)
+#             else:
+#                 plt.plot(x, y, '-', color="red", lw=1.5, alpha=0.8)
+                
+#     if len(bound) == 2:
+#         xmin, xmax = bound
+#         ymin, ymax = bound
+#     elif len(bound) == 4:
+#         xmin, xmax, ymin, ymax = bound
+#     # else:
+#     #     xmin, xmax, ymin, ymax = -1, 1, -1, 1
+#     legend_handles = [
+#         Line2D([0], [0], color='gray', lw=1.5, alpha=0.8, label='Dataset'),
+#         Line2D([0], [0], color='red',  lw=1.5, alpha=0.8, label='Autoregressive'),
+#     ]
+#     plt.legend(handles=legend_handles, loc='best')
+#     plt.xlim(xmin, xmax)
+#     plt.ylim(ymin, ymax)
+#     plt.xlabel("x")
+#     plt.ylabel("y")
+#     plt.title("Particle Trajectories over 10 Vorticity-Field Realizations")
+#     # plt.legend()
+#     plt.grid(True, alpha=0.3)
+#     plt.tight_layout()
+#     path = os.path.join(out_dir, fname)
+#     plt.savefig(path, dpi=200)
+#     plt.close()
+#     print(f"✅ Combined trajectory plot saved: {path}")
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.ticker import FuncFormatter
+
+def save_trajectories_plot(trajectories,
+                           out_dir="./dataset/navier_stokes_flow",
+                           fname="trajectory_plot.png",
+                           bound=None,
+                           pred_label=None,
+                           figsize=(3.5, 3.5),
+                           normalize_ticks=True):
+    """
+    trajectories: list[list[np.ndarray]]  # 각 seg는 (L, 2)
+    bound: [xmin, xmax] 또는 [xmin, xmax, ymin, ymax] 또는 None(자동)
+    pred_label: 예측(빨강) 라벨 목록. None이면 'Autoregressive' 사용.
+    normalize_ticks: True면 눈금 라벨만 [-1,1]로 표시(실좌표/범위 유지).
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    plt.figure(figsize=figsize)
+
+    pred_idx = len(trajectories) - (len(pred_label) if pred_label else 0)
+    gray_added = False
+    red_added  = False
+
+    # 자동 경계 계산용
+    xmin = ymin = np.inf
+    xmax = ymax = -np.inf
+
+    for exp_i, traj_list in enumerate(trajectories):
         for seg in traj_list:
             x, y = seg[:, 0], seg[:, 1]
-            if exp_i < pred_idx:
-                if label not in label_added:
-                    plt.plot(x, y, '-', color='gray', lw=1.5, label=label)
-                    label_added.add(label)
-                else:
-                    plt.plot(x, y, '-', color='gray', lw=1.0)
-            else:
-                plt.plot(x, y, '-', color='red', lw=1.0, label=pred_label[exp_i-pred_idx])
-                label_added.add(pred_label[exp_i-pred_idx])
-            # trajectory 번호 표시 (중앙 혹은 마지막 위치)
-            # cx, cy = x[len(x)//2], y[len(y)//2]
-            # plt.text(cx, cy, f"{idx}", fontsize=7, color=color, ha='center', va='center')
-            # idx += 1
-    # if pred_label is not None:
-    #     plt.plot(x, y, '-', color='red', lw=1.0, label=pred_label)
-    #     label_added.add(pred_label)
-    # 범위 설정
-    if len(bound) == 2:
-        xmin, xmax = bound
-        ymin, ymax = bound
-    elif len(bound) == 4:
-        xmin, xmax, ymin, ymax = bound
-    # else:
-    #     xmin, xmax, ymin, ymax = -1, 1, -1, 1
+            # 경계 갱신(자동 모드일 때 사용)
+            xmin = min(xmin, float(np.min(x))); xmax = max(xmax, float(np.max(x)))
+            ymin = min(ymin, float(np.min(y))); ymax = max(ymax, float(np.max(y)))
 
-    plt.xlim(xmin, xmax)
-    plt.ylim(ymin, ymax)
-    plt.xlabel("x")
-    plt.ylabel("y")
-    plt.title("Particle Trajectories from 3 Simulations")
-    plt.legend()
+            if exp_i < pred_idx:  # 회색(데이터셋)
+                label = "Dataset" if not gray_added else None
+                plt.plot(x, y, '-', color='gray', lw=1.5, alpha=0.9)
+                gray_added = True
+            else:                  # 빨강(예측)
+                this_label = (pred_label[exp_i - pred_idx]
+                              if pred_label else "Autoregressive")
+                label = this_label if not red_added else None
+                plt.plot(x, y, '-', color='red', lw=1.5, alpha=0.3)
+                red_added = True
+
+    # 경계 설정
+    if bound is None:
+        # 자동 경계: 2% 마진
+        xr = max(1e-12, xmax - xmin); yr = max(1e-12, ymax - ymin)
+        plt.xlim(xmin - 0.02 * xr, xmax + 0.02 * xr)
+        plt.ylim(ymin - 0.02 * yr, ymax + 0.02 * yr)
+    elif len(bound) == 2:
+        plt.xlim(bound[0], bound[1])
+        plt.ylim(bound[0], bound[1])
+    elif len(bound) == 4:
+        plt.xlim(bound[0], bound[1])
+        plt.ylim(bound[2], bound[3])
+
+    # (1) 보기용 여백 추가: 현재 범위의 3%씩 패드
+    ax = plt.gca()
+    x0, x1 = ax.get_xlim(); y0, y1 = ax.get_ylim()
+    pad = 0.03
+    ax.set_xlim(x0 - pad*(x1-x0), x1 + pad*(x1-x0))
+    ax.set_ylim(y0 - pad*(y1-y0), y1 + pad*(y1-y0))
+
+    # (2) 실제 좌표는 그대로 쓰되, 눈금 라벨만 [-1,1]로 표시
+
+
+    # 보기 좋게 5개 틱 고정(원하시면 개수 조정)
+    xticks = np.linspace(*ax.get_xlim(), 5)
+    yticks = np.linspace(*ax.get_ylim(), 5)
+    ax.set_xticks(xticks); ax.set_yticks(yticks)
+
+    X0, X1 = ax.get_xlim(); Y0, Y1 = ax.get_ylim()
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, p: f"{((v - X0)/(X1 - X0)):.2f}"))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, p: f"{((v - Y0)/(Y1 - Y0)):.2f}"))
+
+    # 나머지 그대로
+    legend_handles = [
+        Line2D([0], [0], color='gray', lw=1.5, alpha=0.8, label='Ground truth'),
+        Line2D([0], [0], color='red',  lw=1.5, alpha=0.8, label='NODE DMD posterior'),
+    ]
+    plt.legend(handles=legend_handles, loc='best')
+    # plt.xlabel("x"); plt.ylabel("y")
+    plt.title(f"Particle Trajectories over \n 10 Vorticity-Field Realizations")
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
 
     path = os.path.join(out_dir, fname)
-    plt.savefig(path, dpi=200)
+    plt.savefig(path, dpi=200, bbox_inches="tight")  # 라벨 잘림 방지
     plt.close()
-    print(f"✅ Combined trajectory plot saved: {path}")
 # -------------------------------------------------------
 # 2️⃣ Simulation + GIF + NetCDF
 # -------------------------------------------------------
@@ -270,25 +354,33 @@ def merge_datasets(out_dir: str, num_traj: int, save_name: str = "dataset_merged
 # 5️⃣ Example Usage
 # -------------------------------------------------------
 if __name__ == "__main__":
-    out_dir = "./results/navier_stokes_stochastic/run2/teacher_forcing_reconstruction"
+    import argparse
+    parser = argparse.ArgumentParser(description="Evaluate SNode DMD with config from directory.")
+    parser.add_argument("--dir", type=str, required=True, help="Directory containing Gray_Scott_Config.txt")
+    args = parser.parse_args()
+    out_dir = os.path.join("./results/navier_stokes_stochastic", args.dir)
+    # original_traj_dir = "/home/yk826/projects/torch-cfd/dataset/navier_stokes_flow/multiple_traj_small/small_dynamics_noise" 
+    original_traj_dir = "/home/yk826/projects/torch-cfd/dataset/navier_stokes_flow/multiple_traj2" # run3
     # data_path = "./results/navier_stokes_stochastic/run2/teacher_forcing_reconstruction/predicted_vorticity.nc"
-    data_path_raw = "/home/yk826/projects/torch-cfd/dataset/navier_stokes_flow/multiple_traj2/raw_dataset_0.nc"
+    data_path_raw = os.path.join(original_traj_dir, "raw_dataset_0.nc")
         
     trajectories = []
     diam = 1
     ndim = 64
+    # ndim = 32
     ds_raw = xr.open_dataset(data_path_raw)
     x_vals = ds_raw["x"].values
     y_vals = ds_raw["y"].values
     t_vals = ds_raw["time"].values
     init_pos = (sum(x_vals)/len(x_vals), sum(y_vals)/len(y_vals))
-    dt = 0.02
+    dt = 0.04
     
     # rfftmesh = make_rfftmesh(n=ndim, diam=diam)
     # (3) call your function
     # u, v = vorticity_to_velocity(vorticity, rfftmesh)
     for i in range(10):
-        data_path = f"/home/yk826/projects/torch-cfd/dataset/navier_stokes_flow/multiple_traj2/dataset_{i}.nc"
+        data_path = os.path.join(original_traj_dir, f"dataset_{i}.nc") #run3
+        # data_path = os.path.join(original_traj_dir, f"dataset_0.nc") # one_realization
         ds = xr.open_dataset(data_path)
     
         vorticity = ds["vorticity"].values  # (T, nx, ny)
@@ -301,18 +393,23 @@ if __name__ == "__main__":
         # print("💾 Saved trajectory data (.npy)")
 
     # merge_datasets(out_dir, num_traj=1)
-    pred_data_path = "./results/navier_stokes_stochastic/run2/teacher_forcing_reconstruction/predicted_vorticity.nc"
-    ds_pred = xr.open_dataset(pred_data_path)
-    vorticity_pred = ds_pred["vorticity"].values
-    u_pred, v_pred = reconstruct_uv_from_normalized_vorticity(vorticity_pred, fmin=-4, fmax=4.5)
-    trajectory_pred, _ = compute_particle_trajectory(u_pred, v_pred, x_vals, y_vals, t_vals, dt=dt, start_pos=init_pos)
-    trajectories.append(trajectory_pred)
+    pred_label = []
+    # for i in range(10):
+    #     pred_data_path = os.path.join(out_dir, f"teacher_forcing_reconstruction/predicted_vorticity_{i}.nc")
+    #     ds_pred = xr.open_dataset(pred_data_path)
+    #     vorticity_pred = ds_pred["vorticity"].values
+    #     u_pred, v_pred = reconstruct_uv_from_normalized_vorticity(vorticity_pred, fmin=-4, fmax=4.5)
+    #     trajectory_pred, _ = compute_particle_trajectory(u_pred, v_pred, x_vals, y_vals, t_vals, dt=dt, start_pos=init_pos)
+    #     trajectories.append(trajectory_pred)
+    #     pred_label.append(f"teacher_forcing_{i}")
+    for i in range(10):
+        pred_data_path = os.path.join(out_dir, f"autoreg_reconstruction/predicted_vorticity_{i}.nc")
+        ds_pred = xr.open_dataset(pred_data_path)
+        vorticity_pred = ds_pred["vorticity"].values
+        u_pred, v_pred = reconstruct_uv_from_normalized_vorticity(vorticity_pred, fmin=-4, fmax=4.5)
+        trajectory_pred, _ = compute_particle_trajectory(u_pred, v_pred, x_vals, y_vals, t_vals, dt=dt, start_pos=init_pos)
+        trajectories.append(trajectory_pred)
+        pred_label.append(f"autoregressive_{i}")
 
-    pred_data_path = "./results/navier_stokes_stochastic/run2/autoreg_reconstruction/predicted_vorticity.nc"
-    ds_pred = xr.open_dataset(pred_data_path)
-    vorticity_pred = ds_pred["vorticity"].values
-    u_pred, v_pred = reconstruct_uv_from_normalized_vorticity(vorticity_pred, fmin=-4, fmax=4.5)
-    trajectory_pred, _ = compute_particle_trajectory(u_pred, v_pred, x_vals, y_vals, t_vals, dt=dt, start_pos=init_pos)
-    trajectories.append(trajectory_pred)
-    save_trajectories_plot(trajectories, out_dir=out_dir, fname=f"trajectory_plot_original.png", bound=bound, pred_label=["teacher_forcing", "autoregressive"])
+    save_trajectories_plot(trajectories, out_dir=out_dir, fname=f"trajectory_plot_original.png", bound=bound, pred_label=pred_label)
     

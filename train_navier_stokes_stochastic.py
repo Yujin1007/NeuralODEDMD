@@ -114,7 +114,8 @@ def run_train(cfg: Config):
                 l1_weight=cfg.l1_weight, 
                 mode_sparsity_weight=cfg.mode_sparsity_weight,
                 kl_phi_weight=cfg.kl_phi_weight,
-                cons_weight= cfg.cons_weight * min((epoch / cfg.num_epochs), 1) 
+                # cons_weight= cfg.cons_weight * min((epoch / cfg.num_epochs), 1)
+                cons_weight= cfg.cons_weight
             )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)

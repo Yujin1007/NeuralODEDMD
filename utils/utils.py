@@ -5,11 +5,64 @@ import torch.fft as fft
 import numpy as np
 import xarray as xr
 from torch.fft import rfft2, irfft2
+from dataset.generate_synth_dataset import load_synth
+from typing import List, Tuple
+import enum
+import json
+import random
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
+class FeedMode(enum.Enum):
+    AUTOREG = "autoreg"
+    TEACHER = "teacher_forcing"
 def ensure_dir(path: str):
     os.makedirs(path, exist_ok=True)
 
+def prepare_data(cfg):
+    device = torch.device(cfg.device)
+    # returns: t_list, coords_list, y_list, y_true_list, y_true_full_list, coords_full, gt_params, W_full
+    return load_synth(device, T=cfg.data_len, norm_T=cfg.data_len, resolution=cfg.resolution, dt=cfg.dt)
 
+def summarize_and_dump(calib_all: List[dict], mse_full_all: List[float], out_dir: str, mode: FeedMode):
+    def _avg(key): 
+        vals = [d[key] for d in calib_all if key in d]
+        return float(np.mean(vals)) if len(vals) > 0 else None
+
+    summary = {
+        "avg_mse_full": float(np.mean(mse_full_all)) if mse_full_all else None,
+        "coverage@68":  _avg("coverage@68"),
+        "coverage@95":  _avg("coverage@95"),
+        "z_mean":       _avg("z_mean"),
+        "z_std":        _avg("z_std"),
+        "z_abs_mean":   _avg("z_abs_mean"),
+        "NLL_mean":     _avg("NLL_mean"),
+        "mean_pred_var":      _avg("mean_pred_var"),
+        "mean_residual_sq":   _avg("mean_residual_sq"),
+        "z_noise_mean":       _avg("z_noise_mean"),
+        "z_noise_std":        _avg("z_noise_std"),
+        "coverage_noise@68":  _avg("coverage_noise@68"),
+        "coverage_noise@95":  _avg("coverage_noise@95"),
+        "mean_emp_noise_var": _avg("mean_emp_noise_var"),
+    }
+
+    with open(os.path.join(out_dir, "uncertainty_metrics_per_t.json"), "w") as f:
+        json.dump(calib_all, f, indent=2)
+    with open(os.path.join(out_dir, "uncertainty_metrics_summary.json"), "w") as f:
+        json.dump(summary, f, indent=2)
+
+    title = "Autoregressive" if mode == FeedMode.AUTOREG else "Teacher Forcing"
+    print(f"=== {title} Uncertainty Summary ===")
+    for k, v in summary.items():
+        print(f"{k:>24}: {v:.6f}" if isinstance(v, float) else f"{k:>24}: {v}")
+
+def compute_vmin_vmax(y_true_full_list: List[torch.Tensor]) -> Tuple[float, float]:
+    vmin = min(torch.min(y[:, 0]).item() for y in y_true_full_list)
+    vmax = max(torch.max(y[:, 0]).item() for y in y_true_full_list)
+    return vmin, vmax
 def complex_block_matrix(W: torch.Tensor) -> torch.Tensor:
     """Builds real-valued (2m x 2r) matrix from W[...,2] (m x r x 2)."""
     m, r, _ = W.shape
@@ -224,3 +277,4 @@ def reconstruct_uv_from_normalized_vorticity(vorticity_norm, fmin=-4, fmax=4.5, 
     # )
     # return ds_reconstructed
     return u, v
+
