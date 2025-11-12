@@ -1,6 +1,6 @@
 # CDMD-NODE
 
-This is development code of **stochastic neural ordinary differential equation - Dynamic Mode Decomposition (CDMD-NODE)**.  
+This is development code of **Stochastic Neural Ordinary Differential Equation - Dynamic Mode Decomposition (NODE-NODE)**.  
 The project explores uncertainty-aware neural ODEs for dynamic mode decomposition with applications to complex dynamical systems.
 
 ## 🛠 Environment Setup
@@ -40,12 +40,18 @@ More info: [PyTorch Installation Guide](https://pytorch.org/get-started/locally/
 
 ### Train model
 ```bash
-python train.py
+python train.py --dataset gray_scott
+python train.py --dataset synthetic
+python train.py --dataset vorticity
+python train.py --dataset cylinder
 ```
 
 ### Evaluate (autoregressive rollout and teacher forcing rollout)
 ```bash
-python eval.py
+python eval.py --config_dir ./result/gray_scott/run1 --dataset gray_scott
+python eval.py --config_dir ./result/synthetic/run1 --dataset synthetic
+python eval.py --config_dir ./result/vorticity/run1 --dataset gray_scott
+python eval.py --config_dir ./result/cylinder/run1 --dataset cylinder
 ```
 
 
