@@ -1,0 +1,16 @@
+{
+  "avg_mse_full": 0.000647354358271083,
+  "coverage@68": 0.8868472450657895,
+  "coverage@95": 0.9802181846217105,
+  "z_mean": -0.16010836108685716,
+  "z_std": 0.5800715833902359,
+  "z_abs_mean": 0.46886337038717774,
+  "NLL_mean": -3.3419198487934314,
+  "mean_pred_var": 0.0004144340055063367,
+  "mean_residual_sq": 0.00027405645921948905,
+  "z_noise_mean": null,
+  "z_noise_std": null,
+  "coverage_noise@68": null,
+  "coverage_noise@95": null,
+  "mean_emp_noise_var": null
+}
