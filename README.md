@@ -1,4 +1,8 @@
-# CDMD-NODE
+# Sparse-to-Field Reconstruction via Stochastic Neural Dynamic Mode Decomposition
+
+Official implementation of Stochastic NODE--DMD-- Probabilistic modeling of DMD supporting sparse observation and uncertainty quantification. 
+by [Yujin Kim](https://yujin1007.github.io/) and [Sarah Dean &dagger;](https://sdean-group.github.io/)
+
 
 This is development code of **stochastic neural ordinary differential equation - Dynamic Mode Decomposition (CDMD-NODE)**.  
 The project explores uncertainty-aware neural ODEs for dynamic mode decomposition with applications to complex dynamical systems.
@@ -36,7 +40,7 @@ pip install torch --index-url https://download.pytorch.org/whl/cu118
 More info: [PyTorch Installation Guide](https://pytorch.org/get-started/locally/).
 
 
-## 🚀 Usage
+## 🚀 Training
 
 ### Train model
 ```bash
